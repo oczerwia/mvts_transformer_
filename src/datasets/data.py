@@ -333,6 +333,92 @@ class TSRegressionArchive(BaseData):
         df = grp.transform(interpolate_missing)
 
         return df, labels_df
+    
+
+class CedalionfNIRS(BaseData):
+    """Load datasets from the same format as cedalion reads them.
+    
+    In the end, the data needs to be in the shape (sample, channel).
+    Going furhter, all subjects need to be concatinated on the 0 axis.
+
+    Since any preprocessing steps will be performed in Cedalion, we only transform shapes.
+
+    
+    # FIXME: if we want classification or regression, we need labels (should be checked when using contrastive learning)
+    """
+
+    def __init__(self, root_dir, file_list=None, pattern=None, n_proc=1, limit_size=None, config=None):
+        #self.set_num_processes(n_proc=n_proc)
+
+        self.config = config
+
+        self.all_df, self.labels_df = self.load_all(root_dir, file_list=file_list, pattern=pattern)
+        self.all_IDs = self.all_df.index.unique()  # all sample IDs (integer indices 0 ... num_samples-1)
+
+        if limit_size is not None:
+            if limit_size > 1:
+                limit_size = int(limit_size)
+            else:  # interpret as proportion if in (0, 1]
+                limit_size = int(limit_size * len(self.all_IDs))
+            self.all_IDs = self.all_IDs[:limit_size]
+            self.all_df = self.all_df.loc[self.all_IDs]
+
+        # use all features
+        self.feature_names = self.all_df.columns
+        self.feature_df = self.all_df
+
+    
+    def load_single(self, filepath):
+        """This simply loads the csv of our data, as the data transformation was already performed."""
+        df = pd.concat([chunk for chunk in tqdm(pd.read_csv(filepath, chunksize=1000, float_precision="high", index_col=0), desc='Loading data')])
+        # if self.config['subsample_factor']: 
+        #     # Since we already deal with a dataframe, we need to alter the method a bit
+        #     # With group by we guarantee that the subsampling is applied equally to all subjects
+        #     df = df.groupby(df.index).apply(lambda group: group.iloc[::self.config['subsample_factor']])
+        #     df = df.droplevel(0) # Remove unwanted index level created by groupby
+
+        # Replace NaN values
+        df = df.transform(interpolate_missing)
+
+        labels_df = None # When need to implement classification
+
+        return df, labels_df
+
+    def load_all(self,root_dir, file_list=None, pattern=None):
+        """
+        Loads datasets from csv files contained in `root_dir` into a dataframe, optionally choosing from `pattern`
+        Args:
+            root_dir: directory containing all individual .csv files
+            file_list: optionally, provide a list of file paths within `root_dir` to consider.
+                Otherwise, entire `root_dir` contents will be used.
+            pattern: optionally, apply regex string to select subset of files
+        Returns:
+            all_df: a single (possibly concatenated) dataframe with all data corresponding to specified files
+            labels_df: dataframe containing label(s) for each sample
+        """
+
+        # Select paths for training and evaluation
+        if file_list is None:
+            data_paths = glob.glob(os.path.join(root_dir, '*'))  # list of all paths
+
+        if len(data_paths) == 0:
+            raise Exception('No files found using: {}'.format(os.path.join(root_dir, '*')))
+
+        if pattern is None:
+            # by default evaluate on
+            selected_paths = data_paths
+        else:
+            selected_paths = list(filter(lambda x: re.search(pattern, x), data_paths))
+
+        input_paths = [p for p in selected_paths if os.path.isfile(p) and p.endswith('.csv')]
+        if len(input_paths) == 0:
+            raise Exception("No .csv files found using pattern: '{}'".format(pattern))
+
+        all_df, labels_df = self.load_single(input_paths[0])  # a single file contains dataset
+        return all_df, labels_df
+        
+
+
 
 
 class PMUData(BaseData):
@@ -445,4 +531,5 @@ class PMUData(BaseData):
 
 data_factory = {'weld': WeldData,
                 'tsra': TSRegressionArchive,
-                'pmu': PMUData}
+                'pmu': PMUData,
+                'fnirs': CedalionfNIRS}
