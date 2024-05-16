@@ -488,7 +488,6 @@ class PMUData(BaseData):
 
 data_factory = {
     "weld": WeldData,
-    "tsra": TSRegressionArchive,
     "pmu": PMUData,
     "fnirs": CedalionfNIRS,
 }
