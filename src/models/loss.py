@@ -10,6 +10,9 @@ def get_loss_module(config):
     if (task == "imputation") or (task == "transduction"):
         return MaskedMSELoss(reduction='none')  # outputs loss for each batch element
 
+    if task == "imputation":
+        return 
+
     if task == "classification":
         return NoFussCrossEntropyLoss(reduction='none')  # outputs loss for each batch sample
 
@@ -50,7 +53,32 @@ class MaskedMSELoss(nn.Module):
         self.reduction = reduction
         self.mse_loss = nn.MSELoss(reduction=self.reduction)
 
-    def forward(self,
+    def corrcoeff(self, y_pred: torch.Tensor, y_true: torch.Tensor, mask:torch.BoolTensor,) -> torch.Tensor:
+        """
+        Pearson correlation coefficient loss.
+        """
+        y_pred = torch.masked_select(y_pred, mask)
+        y_true = torch.masked_select(y_true, mask)
+
+        y_pred_mean = torch.mean(y_pred, dim=0, keepdim=True)
+        y_true_mean = torch.mean(y_true, dim=0, keepdim=True)
+        centered_y_pred = y_pred - y_pred_mean
+        centered_y_true = y_true - y_true_mean
+
+        covariance = (1 / (y_pred.shape[0] - 1)) * torch.matmul(centered_y_pred.t(), centered_y_true)
+
+        y_pred_std = torch.std(y_pred, dim=0, keepdim=True)
+        y_true_std = torch.std(y_true, dim=0, keepdim=True)
+
+        y_pred_std = torch.clamp(y_pred_std, min=1e-8)
+        y_true_std = torch.clamp(y_true_std, min=1e-8)
+
+        correlation = covariance / (y_pred_std * y_true_std)
+
+        return torch.abs(correlation)
+
+
+    def nrmse(self,
                 y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
         """Compute the loss between a target value and a prediction.
 
@@ -58,6 +86,10 @@ class MaskedMSELoss(nn.Module):
             y_pred: Estimated values
             y_true: Target values
             mask: boolean tensor with 0s at places where values should be ignored and 1s where they should be considered
+
+            
+        ADDITION: I now add the correlation and the MSE loss to a combined metric.
+
 
         Returns
         -------
@@ -71,4 +103,32 @@ class MaskedMSELoss(nn.Module):
         masked_pred = torch.masked_select(y_pred, mask)
         masked_true = torch.masked_select(y_true, mask)
 
-        return self.mse_loss(masked_pred, masked_true)
+        nrmse = torch.divide(self.mse_loss(masked_pred, masked_true).sqrt(), self.mse_loss(masked_pred, masked_true).sqrt().max())
+        return nrmse
+
+
+    def forward(self,
+                y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
+        """Compute the loss between a target value and a prediction.
+
+        Args:
+            y_pred: Estimated values
+            y_true: Target values
+            mask: boolean tensor with 0s at places where values should be ignored and 1s where they should be considered
+
+            
+        ADDITION: I now add the correlation and the MSE loss to a combined metric.
+
+
+        Returns
+        -------
+        if reduction == 'none':
+            (num_active,) Loss for each active batch element as a tensor with gradient attached.
+        if reduction == 'mean':
+            scalar mean loss over batch as a tensor with gradient attached.
+        """
+
+        nrmse = self.nrmse(y_pred=y_pred, y_true=y_true, mask=mask)
+        corrcoeff = self.corrcoeff(y_pred=y_pred, y_true=y_true, mask=mask)
+
+        return nrmse # * (1 - corrcoeff)
