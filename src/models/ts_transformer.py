@@ -168,7 +168,7 @@ class TransformerBatchNormEncoderLayer(nn.modules.Module):
         super(TransformerBatchNormEncoderLayer, self).__setstate__(state)
 
     def forward(self, src: Tensor, src_mask: Optional[Tensor] = None,
-                src_key_padding_mask: Optional[Tensor] = None) -> Tensor:
+                src_key_padding_mask: Optional[Tensor] = None, **kwargs) -> Tensor:
         r"""Pass the input through the encoder layer.
 
         Args:
@@ -222,7 +222,7 @@ class TSTransformerEncoder(nn.Module):
 
         self.feat_dim = feat_dim
 
-    def forward(self, X, padding_masks):
+    def forward(self, X, padding_masks, **kwargs):
         """
         Args:
             X: (batch_size, seq_length, feat_dim) torch tensor of masked features (input)
@@ -239,12 +239,13 @@ class TSTransformerEncoder(nn.Module):
         # NOTE: logic for padding masks is reversed to comply with definition in MultiHeadAttention, TransformerEncoderLayer
         output = self.transformer_encoder(inp, src_key_padding_mask=~padding_masks)  # (seq_length, batch_size, d_model)
         output = self.act(output)  # the output transformer encoder/decoder embeddings don't include non-linearity
+        embedding = output
         output = output.permute(1, 0, 2)  # (batch_size, seq_length, d_model)
         output = self.dropout1(output)
         # Most probably defining a Linear(d_model,feat_dim) vectorizes the operation over (seq_length, batch_size).
         output = self.output_layer(output)  # (batch_size, seq_length, feat_dim)
 
-        return output
+        return output, embedding
 
 
 class TSTransformerEncoderClassiregressor(nn.Module):
@@ -285,7 +286,7 @@ class TSTransformerEncoderClassiregressor(nn.Module):
         # add F.log_softmax and use NLLoss
         return output_layer
 
-    def forward(self, X, padding_masks):
+    def forward(self, X, padding_masks, **kwargs):
         """
         Args:
             X: (batch_size, seq_length, feat_dim) torch tensor of masked features (input)
