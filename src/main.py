@@ -78,13 +78,6 @@ def main(config):
     if config['test_pattern']:  # used if test data come from different files / file patterns
         test_data = data_class(config['data_dir'], pattern=config['test_pattern'], n_proc=-1, config=config)
         test_indices = test_data.all_IDs
-    if config['test_from']:  # load test IDs directly from file, if available, otherwise use `test_set_ratio`. Can work together with `test_pattern`
-        test_indices = list(set([line.rstrip() for line in open(config['test_from']).readlines()]))
-        try:
-            test_indices = [int(ind) for ind in test_indices]  # integer indices
-        except ValueError:
-            pass  # in case indices are non-integers
-        logger.info("Loaded {} test IDs from file: '{}'".format(len(test_indices), config['test_from']))
     if config['val_pattern']:  # used if val data come from different files / file patterns
         val_data = data_class(config['data_dir'], pattern=config['val_pattern'], n_proc=-1, config=config)
         val_indices = val_data.all_IDs
@@ -120,26 +113,6 @@ def main(config):
             json.dump({'train_indices': list(train_indices),
                        'val_indices': list(val_indices),
                        'test_indices': list(test_indices)}, f, indent=4)
-
-    # Pre-process features
-    normalizer = None
-    if config['norm_from']:
-        with open(config['norm_from'], 'rb') as f:
-            norm_dict = pickle.load(f)
-        normalizer = Normalizer(**norm_dict)
-    elif config['normalization'] is not None:
-        normalizer = Normalizer(config['normalization'])
-        my_data.feature_df.loc[train_indices] = normalizer.normalize(my_data.feature_df.loc[train_indices])
-        if not config['normalization'].startswith('per_sample'):
-            # get normalizing values from training set and store for future use
-            norm_dict = normalizer.__dict__
-            with open(os.path.join(config['output_dir'], 'normalization.pickle'), 'wb') as f:
-                pickle.dump(norm_dict, f, pickle.HIGHEST_PROTOCOL)
-    if normalizer is not None:
-        if len(val_indices):
-            val_data.feature_df.loc[val_indices] = normalizer.normalize(val_data.feature_df.loc[val_indices])
-        if len(test_indices):
-            test_data.feature_df.loc[test_indices] = normalizer.normalize(test_data.feature_df.loc[test_indices])
 
     # Create model
     logger.info("Creating model ...")
