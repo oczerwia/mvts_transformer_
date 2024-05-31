@@ -270,12 +270,16 @@ class CedalionfNIRS(BaseData):
         # self.set_num_processes(n_proc=n_proc)
 
         self.config = config
+        self.set_num_processes(n_proc=n_proc)
 
-        self.all_df, self.labels_df = self.load_all(
-            root_dir, file_list=file_list, pattern=pattern
+        # self.all_df, self.labels_df = self.load_all(
+        #     root_dir, file_list=file_list, pattern=pattern
+        # )
+        self.all_df = self.load_all(
+             root_dir, file_list=file_list, pattern=pattern
         )
-        self.all_IDs = (
-            self.all_df.index.unique()
+        self.all_IDs = ((list(range(1286)))
+         # self.all_df.index.unique()
         )  # all sample IDs (integer indices 0 ... num_samples-1)
 
         if limit_size is not None:
@@ -286,18 +290,21 @@ class CedalionfNIRS(BaseData):
             self.all_IDs = self.all_IDs[:limit_size]
             self.all_df = self.all_df.loc[self.all_IDs]
 
+        
         # use all features
-        self.feature_names = self.all_df.columns
+        self.feature_names = list(range(427)) # self.all_df.columns
         self.feature_df = self.all_df
 
-    def load_single(self, filepath):
+
+    @staticmethod
+    def load_single(filepath):
         """This simply loads the csv of our data, as the data transformation was already performed."""
         df = pd.concat(
             [
                 chunk
                 for chunk in tqdm(
                     pd.read_csv(
-                        filepath, chunksize=1000, float_precision="high", index_col=0
+                        filepath, chunksize=1700, float_precision="high", index_col=0
                     ),
                     desc="Loading data",
                 )
@@ -314,7 +321,9 @@ class CedalionfNIRS(BaseData):
 
         labels_df = None  # When need to implement classification
 
-        return df, labels_df
+        return df # , labels_df
+
+
 
     def load_all(self, root_dir, file_list=None, pattern=None):
         """
@@ -350,11 +359,30 @@ class CedalionfNIRS(BaseData):
         if len(input_paths) == 0:
             raise Exception("No .csv files found using pattern: '{}'".format(pattern))
 
-        all_df, labels_df = self.load_single(
-            input_paths[0]
-        )  # a single file contains dataset
-        return all_df, labels_df
+        # Need to return a generator object
 
+        data_generator = load_csv_generator(input_paths)
+
+        return data_generator
+
+
+def load_csv_generator(filenames):
+  """
+  A generator that yields pandas DataFrames from multiple CSV files.
+
+  Args:
+      filenames: A list of CSV filenames to load data from.
+
+  Yields:
+      A pandas DataFrame from each file.
+  """
+  for filename in filenames:
+    try:
+      # Read CSV using chunksize for memory efficiency
+      for chunk in pd.read_csv(filename, chunksize=1700, index_col=0, header=0):
+        yield chunk
+    except FileNotFoundError:
+      print(f"File not found: {filename}")
 
 class PMUData(BaseData):
     """
