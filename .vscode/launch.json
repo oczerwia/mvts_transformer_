@@ -68,6 +68,18 @@
                 // "--gpu", "-1",
                 // "--num_workers", "2",
             ] 
+        },
+        {
+            "name": "TST_config",
+            "type": "debugpy",
+            "program": "src/main.py",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true,
+            "args": [
+                "--config", "config.json"
+            ] 
         }
     ]
 }
