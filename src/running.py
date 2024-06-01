@@ -19,7 +19,7 @@ import sklearn
 
 from utils import utils, analysis
 from models.loss import l2_reg_loss
-from datasets.dataset import ImputationDataset, TransductionDataset, ClassiregressionDataset, collate_unsuperv, collate_superv
+from datasets.dataset import ImputationDataset, TransductionDataset, ClassiregressionDataset, collate_unsuperv, collate_superv, StreamDataset
 
 
 logger = logging.getLogger('__main__')
@@ -37,6 +37,11 @@ def pipeline_factory(config):
 
     if task == "imputation":
         return partial(ImputationDataset, mean_mask_length=config['mean_mask_length'],
+                       masking_ratio=config['masking_ratio'], mode=config['mask_mode'],
+                       distribution=config['mask_distribution'], exclude_feats=config['exclude_feats']),\
+                        collate_unsuperv, UnsupervisedRunner
+    if task == "imputation_generator":
+        return partial(StreamDataset, mean_mask_length=config['mean_mask_length'],
                        masking_ratio=config['masking_ratio'], mode=config['mask_mode'],
                        distribution=config['mask_distribution'], exclude_feats=config['exclude_feats']),\
                         collate_unsuperv, UnsupervisedRunner
@@ -279,7 +284,7 @@ class UnsupervisedRunner(BaseRunner):
         total_active_elements = 0  # total unmasked elements in epoch
         for i, batch in enumerate(self.dataloader):
 
-            X, targets, target_masks, padding_masks, IDs = batch
+            X, targets, target_masks, padding_masks = batch
             targets = targets.to(self.device)
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
@@ -330,7 +335,7 @@ class UnsupervisedRunner(BaseRunner):
             per_batch = {'target_masks': [], 'targets': [], 'predictions': [], 'metrics': [], 'IDs': []}
         for i, batch in enumerate(self.dataloader):
 
-            X, targets, target_masks, padding_masks, IDs = batch
+            X, targets, target_masks, padding_masks = batch
             targets = targets.to(self.device)
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
@@ -351,14 +356,15 @@ class UnsupervisedRunner(BaseRunner):
             batch_loss = torch.sum(loss).cpu().item()
             mean_loss = batch_loss / len(loss)  # mean loss (over active elements) used for optimization the batch
 
+            snr = self.masked_snr(predictions, targets, target_masks)
+
             if keep_all:
                 per_batch['target_masks'].append(target_masks.cpu().numpy())
                 per_batch['targets'].append(targets.cpu().numpy())
                 per_batch['predictions'].append(predictions.cpu().numpy())
                 per_batch['metrics'].append([loss.cpu().numpy()])
-                per_batch['IDs'].append(IDs)
 
-            metrics = {"loss": mean_loss}
+            metrics = {"loss": mean_loss, "snr": snr}
             if i % self.print_interval == 0:
                 ending = "" if epoch_num is None else 'Epoch {} '.format(epoch_num)
                 self.print_callback(i, metrics, prefix='Evaluating ' + ending)
@@ -374,6 +380,22 @@ class UnsupervisedRunner(BaseRunner):
             return self.epoch_metrics, per_batch
         else:
             return self.epoch_metrics
+        
+    def masked_snr(self, y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
+        masked_pred = torch.masked_select(y_pred, mask)
+        masked_true = torch.masked_select(y_true, mask)
+
+        # Calculate mean squared error (noise) for masked data
+        noise = torch.mean((masked_pred - masked_true) ** 2)
+
+        # Ensure no division by zero (silent handling)
+        with torch.no_grad():
+            # Calculate the signal power (assuming masked_true represents the signal)
+            signal = torch.mean(masked_true ** 2)
+            # Prevent division by zero if the signal is zero
+            snr = torch.where(signal != 0, 10 * torch.log10(signal / noise), 0)
+
+        return snr.mean() 
 
     def extract_embeddings(self, epoch_num=None, keep_all=True):
 
@@ -383,7 +405,7 @@ class UnsupervisedRunner(BaseRunner):
             per_batch = {'embeddings': []}
         for i, batch in enumerate(self.dataloader):
 
-            X, targets, target_masks, padding_masks, IDs = batch
+            X, targets, target_masks, padding_masks = batch
             targets = targets.to(self.device)
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore

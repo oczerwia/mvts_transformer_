@@ -2,7 +2,7 @@ import glob
 import logging
 import os
 import re
-from itertools import chain, repeat
+from itertools import chain, repeat, cycle, islice
 from multiprocessing import Pool, cpu_count
 from typing import Optional
 
@@ -79,7 +79,7 @@ def interpolate_missing(y):
     return y
 
 
-def subsample(y, limit=256, factor=2):
+def subsample(y, limit=None, factor=1):
     """
     If a given Series is longer than `limit`, returns subsampled sequence by the specified integer factor
     """
@@ -124,15 +124,15 @@ class CedalionfNIRS(BaseData):
         self.config = config
         self.set_num_processes(n_proc=n_proc)
 
-        # self.all_df, self.labels_df = self.load_all(
-        #     root_dir, file_list=file_list, pattern=pattern
-        # )
+        self.root_dir = root_dir
+        self.file_list = file_list
+        self.pattern = pattern
+
         self.all_df = self.load_all(
              root_dir, file_list=file_list, pattern=pattern
         )
-        self.all_IDs = ((list(range(1286)))
-         # self.all_df.index.unique()
-        )  # all sample IDs (integer indices 0 ... num_samples-1)
+        self.all_IDs = ((list(range(len(self.all_df))))) # monkey patch
+
 
         if limit_size is not None:
             if limit_size > 1:
@@ -144,10 +144,13 @@ class CedalionfNIRS(BaseData):
 
         
         # use all features
-        self.feature_names = list(range(427)) # self.all_df.columns
-        self.feature_df = self.all_df
+        self.feature_names = self.sample_single_file(self.all_df[0]).columns
+        # Normally here to exclued features, we don't do that here
+        self.feature_df = self.all_df 
 
-
+    def sample_single_file(self, file_path):
+        """is used to look into the file structure."""
+        return pd.read_csv(file_path)
 
     def load_all(self, root_dir, file_list=None, pattern=None):
         """
@@ -183,31 +186,17 @@ class CedalionfNIRS(BaseData):
         if len(input_paths) == 0:
             raise Exception("No .csv files found using pattern: '{}'".format(pattern))
 
-        # Need to return a generator object
 
-        data_generator = load_csv_generator(input_paths)
-
-        return data_generator
+        return input_paths # ONLY RETURNS LIST OF RELEVANT PATHS
 
 
-def load_csv_generator(filenames):
-  """
-  A generator that yields pandas DataFrames from multiple CSV files.
+    def __len__(self):
+        return len(self.load_all(self.root_dir,
+                                 self.file_list,
+                                 self.pattern))
 
-  Args:
-      filenames: A list of CSV filenames to load data from.
-
-  Yields:
-      A pandas DataFrame from each file.
-  """
-  for filename in filenames:
-    try:
-      # Read CSV using chunksize for memory efficiency
-      for chunk in pd.read_csv(filename, chunksize=1700, index_col=0, header=0):
-        yield chunk
-    except FileNotFoundError:
-      print(f"File not found: {filename}")
 
 data_factory = {
     "fnirs": CedalionfNIRS,
 }
+

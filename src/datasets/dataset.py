@@ -1,7 +1,9 @@
 import numpy as np
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torch
-
+import pandas as pd
+from itertools import cycle, chain
+import random
 
 class ImputationDataset(Dataset):
     """Dynamically computes missingness (noise) mask for each sample"""
@@ -43,7 +45,61 @@ class ImputationDataset(Dataset):
 
     def __len__(self):
         return len(self.IDs)
+    
 
+class StreamDataset(IterableDataset):
+    """https://medium.com/speechmatics/how-to-build-a-streaming-dataloader-with-pytorch-a66dd891d9dd"""
+
+    def __init__(self, 
+                 data_class, # dataloader class
+                 masking_ratio,
+                 mean_mask_length,
+                 mode,
+                 distribution,
+                 **kwargs # catch code artifacts for now
+                ):
+        self.data_paths = data_class.all_df # so much hacking
+        self.masking_ratio = masking_ratio
+        self.mean_mask_length = mean_mask_length
+        self.mode = mode
+        self.distribution = distribution
+
+    @property
+    def shuffled_data_list(self):
+        return random.sample(self.data_paths, len(self.data_paths))
+
+    def process_data(self, file_paths):
+        """Load single window.
+        
+        Olivers Implementation assumes that each sample
+        is stored in a single file.
+
+        Data is shuffled after each epoch.
+        Hack number 4302534.
+        """
+        for file_path in file_paths:
+
+            X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
+            mask = noise_mask(X, self.masking_ratio, self.mean_mask_length, 
+                              self.mode, self.distribution) 
+            yield torch.from_numpy(X), torch.from_numpy(mask)
+
+    def get_stream(self, file_paths):
+        return self.process_data(file_paths)
+
+    def update(self):
+        """Artifact of harden feature,
+        will not be used in normal implementation."""
+        self.mean_mask_length = min(20, self.mean_mask_length + 1)
+        self.masking_ratio = min(1, self.masking_ratio + 0.05)
+
+
+    def __iter__(self):
+        return self.get_stream(self.data_paths)
+    
+    def __len__(self):
+        return len(self.data_paths)
+    
 
 class TransductionDataset(Dataset):
 
@@ -207,7 +263,7 @@ def collate_unsuperv(data, max_len=None, mask_compensation=False):
     """
 
     batch_size = len(data)
-    features, masks, IDs = zip(*data)
+    features, masks = zip(*data)
 
     # Stack and pad features and masks (convert 2D to 3D tensors, i.e. add batch dimension)
     lengths = [X.shape[0] for X in features]  # original sequence length for each time series
@@ -228,7 +284,7 @@ def collate_unsuperv(data, max_len=None, mask_compensation=False):
 
     padding_masks = padding_mask(torch.tensor(lengths, dtype=torch.int16), max_len=max_len)  # (batch_size, padded_length) boolean tensor, "1" means keep
     target_masks = ~target_masks  # inverse logic: 0 now means ignore, 1 means predict
-    return X, targets, target_masks, padding_masks, IDs
+    return X, targets, target_masks, padding_masks
 
 
 def noise_mask(X, masking_ratio, lm=3, mode='separate', distribution='geometric', exclude_feats=None):

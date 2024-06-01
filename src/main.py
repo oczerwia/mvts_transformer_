@@ -62,7 +62,6 @@ def main(config):
     logger.info("Loading and preprocessing data ...")
     data_class = data_factory[config['data_class']]
     my_data = data_class(config['data_dir'], pattern=config['pattern'], n_proc=config['n_proc'], limit_size=config['limit_size'], config=config)
-    feat_dim = my_data.feature_df.shape[1]  # dimensionality of data features
     if config['task'] == 'classification':
         validation_method = 'StratifiedShuffleSplit'
         labels = my_data.labels_df.values.flatten()
@@ -70,11 +69,7 @@ def main(config):
         validation_method = 'ShuffleSplit'
         labels = None
 
-    # Split dataset
-    test_data = my_data
-    test_indices = None  # will be converted to empty list in `split_dataset`, if also test_set_ratio == 0
-    val_data = my_data
-    val_indices = []
+
     if config['test_pattern']:  # used if test data come from different files / file patterns
         test_data = data_class(config['data_dir'], pattern=config['test_pattern'], n_proc=-1, config=config)
         test_indices = test_data.all_IDs
@@ -82,38 +77,9 @@ def main(config):
         val_data = data_class(config['data_dir'], pattern=config['val_pattern'], n_proc=-1, config=config)
         val_indices = val_data.all_IDs
 
-    # Note: currently a validation set must exist, either with `val_pattern` or `val_ratio`
-    # Using a `val_pattern` means that `val_ratio` == 0 and `test_ratio` == 0
-    if config['val_ratio'] > 0:
-        train_indices, val_indices, test_indices = split_dataset(data_indices=my_data.all_IDs,
-                                                                 validation_method=validation_method,
-                                                                 n_splits=1,
-                                                                 validation_ratio=config['val_ratio'],
-                                                                 test_set_ratio=config['test_ratio'],  # used only if test_indices not explicitly specified
-                                                                 test_indices=test_indices,
-                                                                 random_seed=1337,
-                                                                 labels=labels)
-        train_indices = train_indices[0]  # `split_dataset` returns a list of indices *per fold/split*
-        val_indices = val_indices[0]  # `split_dataset` returns a list of indices *per fold/split*
-    else:
-        train_indices = my_data.all_IDs
-        if test_indices is None:
-            test_indices = []
 
-    logger.info("{} samples may be used for training".format(len(train_indices)))
-    logger.info("{} samples will be used for validation".format(len(val_indices)))
-    logger.info("{} samples will be used for testing".format(len(test_indices)))
 
-    with open(os.path.join(config['output_dir'], 'data_indices.json'), 'w') as f:
-        try:
-            json.dump({'train_indices': list(map(int, train_indices)),
-                       'val_indices': list(map(int, val_indices)),
-                       'test_indices': list(map(int, test_indices))}, f, indent=4)
-        except ValueError:  # in case indices are non-integers
-            json.dump({'train_indices': list(train_indices),
-                       'val_indices': list(val_indices),
-                       'test_indices': list(test_indices)}, f, indent=4)
-
+    ##################################### MODEL SETUP ############################################
     # Create model
     logger.info("Creating model ...")
     model = model_factory(config, my_data)
@@ -162,7 +128,7 @@ def main(config):
 
         test_loader = DataLoader(dataset=test_dataset,
                                  batch_size=config['batch_size'],
-                                 shuffle=False,
+                                 # shuffle=False,
                                  num_workers=config['num_workers'],
                                  pin_memory=True,
                                  collate_fn=lambda x: collate_fn(x, max_len=model.max_len))
@@ -187,20 +153,20 @@ def main(config):
     
     # Initialize data generators
     dataset_class, collate_fn, runner_class = pipeline_factory(config)
-    val_dataset = dataset_class(val_data, val_indices)
+    val_dataset = dataset_class(val_data)
 
     val_loader = DataLoader(dataset=val_dataset,
                             batch_size=config['batch_size'],
-                            shuffle=False,
+                            # shuffle=False,
                             num_workers=config['num_workers'],
                             pin_memory=True,
                             collate_fn=lambda x: collate_fn(x, max_len=model.max_len))
 
-    train_dataset = dataset_class(my_data, train_indices)
+    train_dataset = dataset_class(my_data)
 
     train_loader = DataLoader(dataset=train_dataset,
                               batch_size=config['batch_size'],
-                              shuffle=True,
+                              # shuffle=True, # We can shuffle within 
                               num_workers=config['num_workers'],
                               pin_memory=True,
                               collate_fn=lambda x: collate_fn(x, max_len=model.max_len))
