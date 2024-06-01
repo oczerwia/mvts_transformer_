@@ -83,7 +83,7 @@ class Options(object):
         self.parser.add_argument('--subsample_factor', type=int,
                                  help='Sub-sampling factor used for long sequences: keep every kth sample')
         # Training process
-        self.parser.add_argument('--task', choices={"imputation", "transduction", "classification", "regression"},
+        self.parser.add_argument('--task', choices={"imputation", "imputation_generator", "transduction", "classification", "regression"},
                                  default="imputation",
                                  help=("Training objective/task: imputation of masked values,\n"
                                        "                          transduction of features to other features,\n"
