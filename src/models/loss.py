@@ -7,11 +7,8 @@ def get_loss_module(config):
 
     task = config['task']
 
-    if (task == "imputation") or (task == "transduction"):
+    if (task == "imputation") or (task == "imputation_generator") or (task == "transduction"):
         return MaskedMSELoss(reduction='none')  # outputs loss for each batch element
-
-    if task == "imputation":
-        return 
 
     if task == "classification":
         return NoFussCrossEntropyLoss(reduction='none')  # outputs loss for each batch sample
@@ -90,7 +87,6 @@ class MaskedMSELoss(nn.Module):
             
         ADDITION: I now add the correlation and the MSE loss to a combined metric.
 
-
         Returns
         -------
         if reduction == 'none':
@@ -105,10 +101,39 @@ class MaskedMSELoss(nn.Module):
 
         nrmse = torch.divide(self.mse_loss(masked_pred, masked_true).sqrt(), self.mse_loss(masked_pred, masked_true).sqrt().max())
         return nrmse
+    
+    def masked_snr(self, y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
+        masked_pred = torch.masked_select(y_pred, mask)
+        masked_true = torch.masked_select(y_true, mask)
+
+        # Calculate mean squared error (noise) for masked data
+        noise = torch.mean((masked_pred - masked_true) ** 2)
+
+        # Ensure no division by zero (silent handling)
+        with torch.no_grad():
+            # Calculate the signal power (assuming masked_true represents the signal)
+            signal = torch.mean(masked_true ** 2)
+            # Prevent division by zero if the signal is zero
+            snr = torch.where(signal != 0, 10 * torch.log10(signal / noise), 0)
+
+        return snr.mean() 
+    
+    def mse_loss_(self,
+                y_pred: torch.Tensor,
+                y_true: torch.Tensor,
+                mask: torch.BoolTensor):
+        
+        masked_pred = torch.masked_select(y_pred, mask)
+        masked_true = torch.masked_select(y_true, mask)
+
+        return self.mse_loss(masked_pred, masked_true)
 
 
     def forward(self,
-                y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
+                y_pred: torch.Tensor, 
+                y_true: torch.Tensor, 
+                mask: torch.BoolTensor
+                ) -> torch.Tensor:
         """Compute the loss between a target value and a prediction.
 
         Args:
@@ -128,7 +153,6 @@ class MaskedMSELoss(nn.Module):
             scalar mean loss over batch as a tensor with gradient attached.
         """
 
-        nrmse = self.nrmse(y_pred=y_pred, y_true=y_true, mask=mask)
-        corrcoeff = self.corrcoeff(y_pred=y_pred, y_true=y_true, mask=mask)
+        mse_loss = self.mse_loss_(y_pred, y_true, mask)
 
-        return nrmse # * (1 - corrcoeff)
+        return mse_loss
