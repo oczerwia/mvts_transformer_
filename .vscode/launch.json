@@ -61,7 +61,6 @@
                 "--batch_size", "64",
                 "--dropout", "0.1",
                 "--activation", "gelu",
-                "--no_timestamp",
                 "--subsample_factor", "1",
                 "--model", "transformer",
                 "--normalization_layer", "LayerNorm",
