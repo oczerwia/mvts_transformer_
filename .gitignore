@@ -1,3 +1,6 @@
+imputation/
+outputs/
+
 # Env and package
 .env
 .vscode
