@@ -4,6 +4,10 @@ import torch
 import pandas as pd
 from itertools import cycle, chain
 import random
+import multiprocessing as mp
+import logging
+
+logger = logging.getLogger('__main__')
 
 class ImputationDataset(Dataset):
     """Dynamically computes missingness (noise) mask for each sample"""
@@ -63,29 +67,81 @@ class StreamDataset(IterableDataset):
         self.mean_mask_length = mean_mask_length
         self.mode = mode
         self.distribution = distribution
+        cpu_count = mp.cpu_count()
+        self.cpu_count = 12 if cpu_count > 50 else 5
+        logger.info("using {} cpus to load data".format(self.cpu_count))
+        
 
     @property
     def shuffled_data_list(self):
         return random.sample(self.data_paths, len(self.data_paths))
+    
+    def load_and_mask_data(self, file_path):
+        """
+        Loads a CSV file, applies noise masking, and converts to tensors.
+
+        Args:
+            file_path (str): Path to the CSV file.
+            masking_ratio (float): Ratio of data to mask.
+            mean_mask_length (int): Average length of masked segments.
+            mode (str): Masking mode (e.g., "block", "random").
+            distribution (str): Noise distribution (e.g., "uniform", "normal").
+
+        Returns:
+            tuple: A tuple containing the loaded data and mask tensors.
+        """
+
+        X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
+        mask = noise_mask(X, self.masking_ratio, self.mean_mask_length, self.mode, self.distribution)
+        return torch.from_numpy(X), torch.from_numpy(mask)
+
+    def parallelize_loading(self, file_paths):
+        """
+        Parallelizes data loading and masking using a multiprocessing pool.
+
+        Args:
+            file_paths (list): List of CSV file paths.
+            masking_ratio (float): Ratio of data to mask.
+            mean_mask_length (int): Average length of masked segments.
+            mode (str): Masking mode (e.g., "block", "random").
+            distribution (str): Noise distribution (e.g., "uniform", "normal").
+            num_workers (int, optional): Number of worker processes. Defaults to None, which uses all available CPUs.
+
+        Yields:
+            tuple: A tuple containing the loaded data and mask tensors.
+        """
+
+
+        with mp.Pool(processes=self.cpu_count) as pool:
+            for data, mask in pool.starmap(self.load_and_mask_data, zip(file_paths)):
+                yield data, mask
 
     def process_data(self, file_paths):
-        """Load single window.
-        
+        """
+        Load single window with parallelization for data and mask generation.
+
         Olivers Implementation assumes that each sample
         is stored in a single file.
 
         Data is shuffled after each epoch.
-        Hack number 4302534.
+        Hack number 4302534. (This comment is removed for clarity)
+
+        Args:
+            file_paths (list): List of CSV file paths.
+            masking_ratio (float): Ratio of data to mask.
+            mean_mask_length (int): Average length of masked segments.
+            mode (str): Masking mode (e.g., "block", "random").
+            distribution (str): Noise distribution (e.g., "uniform", "normal").
+            num_workers (int, optional): Number of worker processes. Defaults to None, which uses all available CPUs.
+
+        Yields:
+            tuple: A tuple containing the loaded data and mask tensors.
         """
-        for file_path in file_paths:
 
-            X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
-            mask = noise_mask(X, self.masking_ratio, self.mean_mask_length, 
-                              self.mode, self.distribution) 
-            yield torch.from_numpy(X), torch.from_numpy(mask)
+        # Leverage the parallelize_loading function for efficient data processing
+        for data, mask in self.parallelize_loading(file_paths):
+            yield data, mask
 
-    def get_stream(self, file_paths):
-        return self.process_data(file_paths)
 
     def update(self):
         """Artifact of harden feature,
@@ -95,7 +151,7 @@ class StreamDataset(IterableDataset):
 
 
     def __iter__(self):
-        return self.get_stream(self.data_paths)
+        return self.process_data(self.data_paths)
     
     def __len__(self):
         return len(self.data_paths)
