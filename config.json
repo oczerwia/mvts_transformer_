@@ -24,5 +24,6 @@
     "subsample_factor": 1,
     "model": "transformer",
     "normalization_layer": "LayerNorm",
-    "max_seq_len": 1700
+    "max_seq_len": 1700,
+    "num_workers":4
   }
