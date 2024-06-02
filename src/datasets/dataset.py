@@ -1,9 +1,16 @@
 import numpy as np
+import torch.distributed
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torch
 import pandas as pd
 from itertools import cycle, chain
 import random
+import math
+import torch.utils.data as data
+import os
+import torch.utils.data as data
+import random
+
 
 class ImputationDataset(Dataset):
     """Dynamically computes missingness (noise) mask for each sample"""
@@ -47,8 +54,8 @@ class ImputationDataset(Dataset):
         return len(self.IDs)
     
 
-class StreamDataset(IterableDataset):
-    """https://medium.com/speechmatics/how-to-build-a-streaming-dataloader-with-pytorch-a66dd891d9dd"""
+class StreamDataset(data.IterableDataset):
+    """StreamDataset with worker-aware shuffling for multi-process loading."""
 
     def __init__(self, 
                  data_class, # dataloader class
@@ -56,17 +63,38 @@ class StreamDataset(IterableDataset):
                  mean_mask_length,
                  mode,
                  distribution,
+                 config,
                  **kwargs # catch code artifacts for now
                 ):
-        self.data_paths = data_class.all_df # so much hacking
+        self.data_paths = data_class.all_df  # so much hacking
         self.masking_ratio = masking_ratio
         self.mean_mask_length = mean_mask_length
         self.mode = mode
         self.distribution = distribution
+        self.reset_flag = False  # Reset flag for generator
+        self.config = config
+        self.start = 0
+        self.end = len(self.data_paths)
 
     @property
     def shuffled_data_list(self):
-        return random.sample(self.data_paths, len(self.data_paths))
+        # Worker-aware shuffling using dataloader info
+        worker_id = torch.utils.data.get_worker_info().id
+        rank = self.config["num_workers"]
+
+        # Apply consistent shuffle seed across all workers for reproducibility
+        seed = worker_id
+        torch.manual_seed(seed)
+        shuffled_data = self.data_paths  # Assuming data_paths represents file paths
+        random.shuffle(shuffled_data)
+
+        # Partition data based on worker ID
+        total_data = len(shuffled_data)
+        chunk_size = int(math.ceil(total_data / (rank + 1)))  # Use rank for partitioning
+        start_index = worker_id * chunk_size
+        end_index = min(start_index + chunk_size, total_data)
+
+        return shuffled_data[start_index:end_index]
 
     def process_data(self, file_paths):
         """Load single window.
@@ -75,7 +103,6 @@ class StreamDataset(IterableDataset):
         is stored in a single file.
 
         Data is shuffled after each epoch.
-        Hack number 4302534.
         """
         for file_path in file_paths:
 
@@ -87,19 +114,24 @@ class StreamDataset(IterableDataset):
     def get_stream(self, file_paths):
         return self.process_data(file_paths)
 
-    def update(self):
-        """Artifact of harden feature,
-        will not be used in normal implementation."""
-        self.mean_mask_length = min(20, self.mean_mask_length + 1)
-        self.masking_ratio = min(1, self.masking_ratio + 0.05)
-
-
     def __iter__(self):
-        return self.get_stream(self.data_paths)
-    
+         worker_info = torch.utils.data.get_worker_info()
+         
+         if worker_info is None:  # single-process data loading, return the full iterator
+             iter_start = self.start
+             iter_end = self.end
+         else:  # in a worker process
+             per_worker = int(math.ceil((self.end - self.start) / float(worker_info.num_workers)))
+             worker_id = worker_info.id
+             iter_start =  self.start + worker_id * per_worker
+             iter_end = min(iter_start + per_worker, self.end)
+
+         return self.get_stream(self.data_paths[iter_start:iter_end])
+                           
     def __len__(self):
-        return len(self.data_paths)
-    
+        complete_data = len(self.data_paths) 
+        return math.ceil(complete_data / self.config["batch_size"])
+
 
 class TransductionDataset(Dataset):
 
@@ -246,7 +278,7 @@ def compensate_masking(X, mask):
     return X.shape[-1] * X / num_active
 
 
-def collate_unsuperv(data, max_len=None, mask_compensation=False):
+def collate_unsuperv(data, mask_compensation=False):
     """Build mini-batch tensors from a list of (X, mask) tuples. Mask input. Create
     Args:
         data: len(batch_size) list of tuples (X, mask).
@@ -267,8 +299,7 @@ def collate_unsuperv(data, max_len=None, mask_compensation=False):
 
     # Stack and pad features and masks (convert 2D to 3D tensors, i.e. add batch dimension)
     lengths = [X.shape[0] for X in features]  # original sequence length for each time series
-    if max_len is None:
-        max_len = max(lengths)
+    max_len = 1700
     X = torch.zeros(batch_size, max_len, features[0].shape[-1])  # (batch_size, padded_length, feat_dim)
     target_masks = torch.zeros_like(X,
                                     dtype=torch.bool)  # (batch_size, padded_length, feat_dim) masks related to objective

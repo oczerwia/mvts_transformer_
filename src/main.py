@@ -11,7 +11,6 @@ import logging
 logging.basicConfig(format='%(asctime)s | %(levelname)s : %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-logger.info("Loading packages ...")
 import os
 import sys
 import time
@@ -31,6 +30,7 @@ from options import Options
 from running import setup, pipeline_factory, validate, check_progress, NEG_METRICS
 from utils import utils
 from datasets.data import data_factory, Normalizer
+from datasets.dataset import collate_unsuperv
 from datasets.datasplit import split_dataset
 from models.ts_transformer import model_factory
 from models.loss import get_loss_module
@@ -124,14 +124,14 @@ def main(config):
 
     if config['test_only'] == 'testset':  # Only evaluate and skip training
         dataset_class, collate_fn, runner_class = pipeline_factory(config)
-        test_dataset = dataset_class(test_data, test_indices)
+        test_dataset = dataset_class(test_data, config=config)
 
         test_loader = DataLoader(dataset=test_dataset,
                                  batch_size=config['batch_size'],
                                  # shuffle=False,
                                  num_workers=config['num_workers'],
                                  pin_memory=True,
-                                 collate_fn=lambda x: collate_fn(x, max_len=model.max_len))
+                                 collate_fn=collate_unsuperv)
         
         if config['extract_embeddings_only']:
             embeddings_extractor = runner_class(model, test_loader, device, loss_module,
@@ -153,23 +153,23 @@ def main(config):
     
     # Initialize data generators
     dataset_class, collate_fn, runner_class = pipeline_factory(config)
-    val_dataset = dataset_class(val_data)
+    val_dataset = dataset_class(val_data, config=config)
 
     val_loader = DataLoader(dataset=val_dataset,
                             batch_size=config['batch_size'],
                             # shuffle=False,
                             num_workers=config['num_workers'],
                             pin_memory=True,
-                            collate_fn=lambda x: collate_fn(x, max_len=model.max_len))
+                            collate_fn=collate_unsuperv)
 
-    train_dataset = dataset_class(my_data)
+    train_dataset = dataset_class(my_data, config=config)
 
     train_loader = DataLoader(dataset=train_dataset,
                               batch_size=config['batch_size'],
                               # shuffle=True, # We can shuffle within 
                               num_workers=config['num_workers'],
                               pin_memory=True,
-                              collate_fn=lambda x: collate_fn(x, max_len=model.max_len))
+                              collate_fn=collate_unsuperv)
 
     trainer = runner_class(model, train_loader, device, loss_module, optimizer, l2_reg=output_reg,
                                  print_interval=config['print_interval'], console=config['console'])

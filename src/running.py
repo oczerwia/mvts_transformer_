@@ -224,7 +224,7 @@ def validate(val_evaluator, tensorboard_writer, config, best_metrics, best_value
         best_metrics = aggr_metrics.copy()
 
         pred_filepath = os.path.join(config['pred_dir'], 'best_predictions')
-        np.savez(pred_filepath, **per_batch)
+        # np.savez(pred_filepath, **per_batch)
 
     return aggr_metrics, best_metrics, best_value
 
@@ -310,7 +310,10 @@ class UnsupervisedRunner(BaseRunner):
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=4.0)
             self.optimizer.step()
 
-            metrics = {"loss": mean_loss.item()}
+            snr = self.masked_snr(predictions, targets, target_masks)
+            correlation = self.masked_correlation(predictions, targets, target_masks)
+
+            metrics = {"loss": mean_loss.item(), "snr": snr, "correlation": correlation}
             if i % self.print_interval == 0:
                 ending = "" if epoch_num is None else 'Epoch {} '.format(epoch_num)
                 self.print_callback(i, metrics, prefix='Training ' + ending)
@@ -357,6 +360,7 @@ class UnsupervisedRunner(BaseRunner):
             mean_loss = batch_loss / len(loss)  # mean loss (over active elements) used for optimization the batch
 
             snr = self.masked_snr(predictions, targets, target_masks)
+            correlation = self.masked_correlation(predictions, targets, target_masks)
 
             if keep_all:
                 per_batch['target_masks'].append(target_masks.cpu().numpy())
@@ -364,7 +368,7 @@ class UnsupervisedRunner(BaseRunner):
                 per_batch['predictions'].append(predictions.cpu().numpy())
                 per_batch['metrics'].append([loss.cpu().numpy()])
 
-            metrics = {"loss": mean_loss, "snr": snr}
+            metrics = {"loss": mean_loss, "snr": snr, "correlation": correlation}
             if i % self.print_interval == 0:
                 ending = "" if epoch_num is None else 'Epoch {} '.format(epoch_num)
                 self.print_callback(i, metrics, prefix='Evaluating ' + ending)
@@ -396,6 +400,36 @@ class UnsupervisedRunner(BaseRunner):
             snr = torch.where(signal != 0, 10 * torch.log10(signal / noise), 0)
 
         return snr.mean() 
+    
+    def masked_correlation(self, y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
+        """Calculates the Pearson correlation coefficient between masked y_true and y_pred."""
+
+        masked_pred = torch.masked_select(y_pred, mask)
+        masked_true = torch.masked_select(y_true, mask)
+
+        # Ensure we have enough elements for correlation calculation (avoid division by zero)
+        if masked_pred.numel() < 2 or masked_true.numel() < 2:
+            return torch.tensor(0.0)
+
+        # Standardize masked data (zero mean, unit variance)
+        mean_pred = masked_pred.mean()
+        std_pred = masked_pred.std()
+        masked_pred_std = (masked_pred - mean_pred) / std_pred
+
+        mean_true = masked_true.mean()
+        std_true = masked_true.std()
+        masked_true_std = (masked_true - mean_true) / std_true
+
+        # Calculate covariance between standardized masked data (alternative approach)
+        covariance = torch.mean(masked_pred_std * masked_true_std)
+
+        # Calculate Pearson correlation coefficient
+        correlation = covariance / (std_pred * std_true)
+
+        # Clip correlation to a valid range (-1, 1) for numerical stability
+        correlation = torch.clamp(correlation, min=-1.0, max=1.0)
+
+        return correlation
 
     def extract_embeddings(self, epoch_num=None, keep_all=True):
 
