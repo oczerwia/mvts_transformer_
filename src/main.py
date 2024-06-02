@@ -224,7 +224,7 @@ def main(config):
             lr = lr * config['lr_factor'][lr_step]
             if lr_step < len(config['lr_step']) - 1:  # so that this index does not get out of bounds
                 lr_step += 1
-            logger.info('Learning rate updated to: ', lr)
+            logger.info('Learning rate updated to: {}'.format(lr))
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
 
