@@ -360,6 +360,8 @@ class UnsupervisedRunner(BaseRunner):
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
 
+            logger.info(f"Batch {i}")
+            logger.info(f"Data size {X.shape}")
             logger.info(f"X is on {X.device}")
             logger.info(f"targets is on {targets.device}")
             logger.info(f"target mask is on {target_masks.device}")
