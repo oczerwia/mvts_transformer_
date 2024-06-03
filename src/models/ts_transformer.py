@@ -458,7 +458,7 @@ class SelfSupervisedLSTMImputer(nn.Module):
             dropout=dropout,
             bidirectional=True,
         )
-        self.device = torch.device('cuda' if (torch.cuda.is_available() and config['gpu'] != '-1') else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
         self.fc = nn.Linear(
