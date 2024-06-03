@@ -294,7 +294,14 @@ class UnsupervisedRunner(BaseRunner):
             padding_masks.to(self.device)  # 0s: ignore
             self.model.to(self.device)
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
-            predictions.to(self.device)
+            predictions = predictions.to(self.device)
+
+            logger.info(f"X is on {X.device}")
+            logger.info(f"targets is on {targets.device}")
+            logger.info(f"target mask is on {target_masks.device}")
+            logger.info(f"padding is on {padding_masks.device}")
+            logger.info(f"prediction is on {predictions.device}")
+
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
@@ -350,12 +357,11 @@ class UnsupervisedRunner(BaseRunner):
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
-            predictions.to(self.device)
+            predictions = predictions.to(self.device)
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
 
             logger.info(f"X is on {X.device}")
-            
             logger.info(f"targets is on {targets.device}")
             logger.info(f"target mask is on {target_masks.device}")
             logger.info(f"padding is on {padding_masks.device}")
