@@ -296,7 +296,7 @@ class UnsupervisedRunner(BaseRunner):
             padding_masks.to(self.device)  # 0s: ignore
             self.model.to(self.device)
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
-
+            predictions.to(self.device)
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
@@ -354,11 +354,11 @@ class UnsupervisedRunner(BaseRunner):
             padding_masks.to(self.device)  # 0s: ignore
             self.model.to(self.device)
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
-
+            predictions.to(self.device)
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
-            batch_loss = torch.sum(loss).cpu().item()
+            batch_loss = torch.sum(loss)
             mean_loss = batch_loss / len(loss)  # mean loss (over active elements) used for optimization the batch
 
             snr = self.masked_snr(predictions, targets, target_masks)
