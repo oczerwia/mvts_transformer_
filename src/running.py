@@ -243,6 +243,7 @@ class BaseRunner(object):
     def __init__(self, model, dataloader, device, loss_module, optimizer=None, l2_reg=None, print_interval=10, console=True):
 
         self.model = model
+        self.model.to(device)
         self.dataloader = dataloader
         self.device = device
         self.optimizer = optimizer
@@ -285,11 +286,12 @@ class UnsupervisedRunner(BaseRunner):
         for i, batch in enumerate(self.dataloader):
 
             X, targets, target_masks, padding_masks = batch
+            X = X.to(self.device)
             targets = targets.to(self.device)
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
         
-            predictions, embedding = self.model(X.to(self.device), padding_masks)  # (batch_size, padded_length, feat_dim)
+            predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
 
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
