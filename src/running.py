@@ -290,20 +290,17 @@ class UnsupervisedRunner(BaseRunner):
             logger.info(f"DATA SHAPE: {batch[0].shape}")
 
             X, targets, target_masks, padding_masks = batch
-            X = X.to(self.device)
             targets = targets.to(self.device)
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
-            predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
-            predictions = predictions.to(self.device)
 
-            
+            predictions = self.model(X.to(self.device), padding_masks)  # (batch_size, padded_length, feat_dim)
 
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
             batch_loss = torch.sum(loss)
-            mean_loss = batch_loss / len(loss)  # mean loss (over active elements) used for optimization
+            mean_loss = batch_loss / len(loss) 
 
             if self.l2_reg:
                 total_loss = mean_loss + self.l2_reg * l2_reg_loss(self.model)
