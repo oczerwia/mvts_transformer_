@@ -117,20 +117,22 @@ class StreamDataset(data.IterableDataset):
         return self.process_data(file_paths)
 
     def __iter__(self):
-         worker_info = torch.utils.data.get_worker_info()
-         
-         if worker_info is None:  # single-process data loading, return the full iterator
-             iter_start = self.start
-             iter_end = self.end
-         else:  # in a worker process
-             per_worker = int(math.ceil((self.end - self.start) / float(worker_info.num_workers)))
-             worker_id = worker_info.id
-             logger.info(f"worker_id {iter_start}:{iter_end} total length: {len(self.data_paths)}")
-             iter_start =  self.start + worker_id * per_worker
-             iter_end = min(iter_start + per_worker, self.end)
+        worker_info = torch.utils.data.get_worker_info()
+        
+        if worker_info is None:  # single-process data loading, return the full iterator
+            iter_start = self.start
+            iter_end = self.end
+        else:  # in a worker process
+            per_worker = int(math.ceil((self.end - self.start) / float(worker_info.num_workers)))
+            worker_id = worker_info.id
+            
+            iter_start =  self.start + worker_id * per_worker
+            iter_end = min(iter_start + per_worker, self.end)
 
-         return self.get_stream(self.data_paths[iter_start:iter_end])
-                           
+
+        logger.info(f"worker_id {iter_start}:{iter_end} total length: {len(self.data_paths)}")
+        return self.get_stream(self.data_paths[iter_start:iter_end])
+                        
     def __len__(self):
         complete_data = len(self.data_paths) 
         return math.ceil(complete_data / self.config["batch_size"])
