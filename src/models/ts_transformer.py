@@ -459,7 +459,6 @@ class SelfSupervisedLSTMImputer(nn.Module):
             bidirectional=True,
         )
         
-
         self.fc = nn.Linear(
             hidden_size * 2, feat_dim
         )  # Reconstruct using both directions
