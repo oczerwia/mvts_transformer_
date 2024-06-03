@@ -286,6 +286,8 @@ class UnsupervisedRunner(BaseRunner):
         epoch_loss = 0  # total loss of epoch
         total_active_elements = 0  # total unmasked elements in epoch
         for i, batch in enumerate(self.dataloader):
+            logger.info(f"train_epoch batch: {i}")
+            logger.info(f"DATA SHAPE: {batch[0].shape}")
 
             X, targets, target_masks, padding_masks = batch
             X = X.to(self.device)
@@ -295,7 +297,7 @@ class UnsupervisedRunner(BaseRunner):
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
             predictions = predictions.to(self.device)
 
-            logger.info(f"train_epoch batch: {i}")
+            
 
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
@@ -351,7 +353,9 @@ class UnsupervisedRunner(BaseRunner):
             targets = targets.to(self.device)
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
+
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
+
             predictions = predictions.to(self.device)
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
