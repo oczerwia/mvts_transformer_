@@ -458,7 +458,9 @@ class SelfSupervisedLSTMImputer(nn.Module):
             dropout=dropout,
             bidirectional=True,
         )
-        
+        self.device = torch.device('cuda' if (torch.cuda.is_available() and config['gpu'] != '-1') else 'cpu')
+
+
         self.fc = nn.Linear(
             hidden_size * 2, feat_dim
         )  # Reconstruct using both directions
@@ -483,18 +485,18 @@ class SelfSupervisedLSTMImputer(nn.Module):
             self.lstm.bias_ih_l0 = torch.nn.Parameter(
                 torch.tensor(
                     self.forget_gate_bias * np.ones(self.lstm.bias_ih_l0.size()),
-                    dtype=torch.float,
+                    dtype=torch.float, device=self.device
                 )
             )
             self.lstm.bias_hh_l0 = torch.nn.Parameter(
                 torch.tensor(
                     self.forget_gate_bias * np.ones(self.lstm.bias_hh_l0.size()),
-                    dtype=torch.float,
+                    dtype=torch.float, device=self.device
                 )
             )
 
         # Pass through LSTM
-        output, (hidden, cell) = self.lstm(X)
+        output, (hidden, cell) = self.lstm(X.to(self.device))
 
         # Apply activation function
         output = self.act(output)
