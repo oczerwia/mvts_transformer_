@@ -254,6 +254,8 @@ class BaseRunner(object):
 
         self.epoch_metrics = OrderedDict()
 
+        self.accumulation_steps = 64
+
     def train_epoch(self, epoch_num=None):
         raise NotImplementedError('Please override in child class')
 
@@ -307,13 +309,13 @@ class UnsupervisedRunner(BaseRunner):
             else:
                 total_loss = mean_loss
 
-            # Zero gradients, perform a backward pass, and update the weights.
-            self.optimizer.zero_grad()
-            total_loss.backward()
 
-            # torch.nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=4.0)
-            self.optimizer.step()
+            total_loss.backward()
+            if i + 1 % self.accumulation_steps == 0: # Perform gradient accumulation for smaller batch sizes
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=4.0)
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+            
 
             snr = self.masked_snr(predictions, targets, target_masks)
             correlation = self.masked_correlation(predictions, targets, target_masks)
