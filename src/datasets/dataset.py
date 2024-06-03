@@ -10,6 +10,8 @@ import torch.utils.data as data
 import os
 import torch.utils.data as data
 import random
+import logging
+logger = logging.getLogger(__name__)
 
 
 class ImputationDataset(Dataset):
@@ -123,6 +125,7 @@ class StreamDataset(data.IterableDataset):
          else:  # in a worker process
              per_worker = int(math.ceil((self.end - self.start) / float(worker_info.num_workers)))
              worker_id = worker_info.id
+             logger.info(f"worker_id {iter_start}:{iter_end} total length: {len(self.data_paths)}")
              iter_start =  self.start + worker_id * per_worker
              iter_end = min(iter_start + per_worker, self.end)
 
