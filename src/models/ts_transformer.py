@@ -340,12 +340,9 @@ class SelfSupervisedLSTMImputer(nn.Module):
             raise ValueError(f"Unsupported activation function: {activation}")
 
 
-    def forward(self, X, mask):
+    def forward(self, X, mask):  # Assuming mask is not used here
         # Permute for LSTM input format (seq_len, batch_size, feature_dim)
         X = X.permute(1, 0, 2)
-
-        # Pack the sequence to handle variable-length sequences
-        packed_seq = nn.utils.rnn.pack_padded_sequence(X, mask.sum(dim=-1), batch_first=False)
 
         # Set forget gate bias (if custom value provided)
         if self.forget_gate_bias != 1.0:
@@ -353,9 +350,7 @@ class SelfSupervisedLSTMImputer(nn.Module):
             self.lstm.bias_hh_l0 = torch.nn.Parameter(torch.tensor(self.forget_gate_bias * np.ones(self.lstm.bias_hh_l0.size()), dtype=torch.float))
 
         # Pass through LSTM
-        output, (hidden, cell) = self.lstm(packed_seq)
-        # Unpack the sequence
-        output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=False)
+        output, (hidden, cell) = self.lstm(X)
 
         # Apply activation function
         output = self.act(output)
