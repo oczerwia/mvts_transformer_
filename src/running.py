@@ -288,11 +288,10 @@ class UnsupervisedRunner(BaseRunner):
         for i, batch in enumerate(self.dataloader):
 
             X, targets, target_masks, padding_masks = batch
-            X.to(self.device)
-            targets.to(self.device)
-            target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
-            padding_masks.to(self.device)  # 0s: ignore
-            self.model.to(self.device)
+            X = X.to(self.device)
+            targets = targets.to(self.device)
+            target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
+            padding_masks = padding_masks.to(self.device)  # 0s: ignore
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
             predictions = predictions.to(self.device)
 
