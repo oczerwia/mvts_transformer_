@@ -22,8 +22,10 @@
     "dropout": 0.1,
     "activation": "gelu",
     "subsample_factor": 1,
-    "model": "transformer",
+    "model": "lstm",
     "normalization_layer": "LayerNorm",
     "max_seq_len": 1700,
-    "num_workers": 4
+    "num_workers": 4,
+    "lstm_hidden_layers": 4,
+    "forget_gate_bias": 0.9
   }

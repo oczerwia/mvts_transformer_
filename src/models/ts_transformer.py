@@ -5,6 +5,7 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torch.nn.modules import MultiheadAttention, Linear, Dropout, BatchNorm1d, TransformerEncoderLayer
+import numpy as np
 
 
 def model_factory(config, data):
@@ -20,28 +21,24 @@ def model_factory(config, data):
             raise x
 
     if (task == "imputation") or (task == "imputation_generator") or (task == "transduction"):
-        if config['model'] == 'LINEAR':
-            return DummyTSTransformerEncoder(feat_dim, max_seq_len, config['d_model'], config['num_heads'],
-                                             config['num_layers'], config['dim_feedforward'], dropout=config['dropout'],
-                                             pos_encoding=config['pos_encoding'], activation=config['activation'],
-                                             norm=config['normalization_layer'], freeze=config['freeze'])
-        elif config['model'] == 'transformer':
+        if config['model'] == 'transformer':
             return TSTransformerEncoder(feat_dim, max_seq_len, config['d_model'], config['num_heads'],
                                         config['num_layers'], config['dim_feedforward'], dropout=config['dropout'],
                                         pos_encoding=config['pos_encoding'], activation=config['activation'],
                                         norm=config['normalization_layer'], freeze=config['freeze'])
+        elif config['model'] == 'lstm':
+            return SelfSupervisedLSTMImputer(feat_dim=feat_dim,
+                                              max_len=max_seq_len, 
+                                              num_layers=config["dim_feedforward"], 
+                                              dropout=config["dropout"],
+                                              hidden_size=config["lstm_hidden_layers"],
+                                              activation=config["activation"],
+                                              forget_gate_bias=config["forget_gate_bias"])
 
     if (task == "classification") or (task == "regression"):
         num_labels = len(data.class_names) if task == "classification" else data.labels_df.shape[1]  # dimensionality of labels
-        if config['model'] == 'LINEAR':
-            return DummyTSTransformerEncoderClassiregressor(feat_dim, max_seq_len, config['d_model'],
-                                                            config['num_heads'],
-                                                            config['num_layers'], config['dim_feedforward'],
-                                                            num_classes=num_labels,
-                                                            dropout=config['dropout'], pos_encoding=config['pos_encoding'],
-                                                            activation=config['activation'],
-                                                            norm=config['normalization_layer'], freeze=config['freeze'])
-        elif config['model'] == 'transformer':
+        
+        if config['model'] == 'transformer':
             return TSTransformerEncoderClassiregressor(feat_dim, max_seq_len, config['d_model'],
                                                         config['num_heads'],
                                                         config['num_layers'], config['dim_feedforward'],
@@ -313,3 +310,64 @@ class TSTransformerEncoderClassiregressor(nn.Module):
 
         return output
 
+
+class SelfSupervisedLSTMImputer(nn.Module):
+    def __init__(self, feat_dim, max_len, 
+                 num_layers=1, hidden_size=128, 
+                 dropout=0.1, forget_gate_bias=1.0, 
+                 activation='tanh'):
+        super(SelfSupervisedLSTMImputer, self).__init__()
+        self.feat_dim = feat_dim
+        self.max_len = max_len
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.dropout = dropout
+        self.forget_gate_bias = forget_gate_bias
+        self.activation_function = activation
+        self.lstm = nn.LSTM(feat_dim, hidden_size, num_layers=num_layers, dropout=dropout, bidirectional=True)
+        self.fc = nn.Linear(hidden_size * 2, feat_dim)  # Reconstruct using both directions
+        self.dropout = nn.Dropout(dropout)
+
+
+        # Activation function
+        if activation == 'tanh':
+            self.act = nn.Tanh()
+        elif activation == 'relu':
+            self.act = nn.ReLU()
+        elif activation == 'gelu':
+            self.act = nn.GELU()
+        else:
+            raise ValueError(f"Unsupported activation function: {activation}")
+
+
+    def forward(self, X, mask):
+        # Permute for LSTM input format (seq_len, batch_size, feature_dim)
+        X = X.permute(1, 0, 2)
+
+        # Pack the sequence to handle variable-length sequences
+        packed_seq = nn.utils.rnn.pack_padded_sequence(X, mask.sum(dim=-1), batch_first=False)
+
+        # Set forget gate bias (if custom value provided)
+        if self.forget_gate_bias != 1.0:
+            self.lstm.bias_ih_l0 = torch.nn.Parameter(torch.tensor(self.forget_gate_bias * np.ones(self.lstm.bias_ih_l0.size()), dtype=torch.float))
+            self.lstm.bias_hh_l0 = torch.nn.Parameter(torch.tensor(self.forget_gate_bias * np.ones(self.lstm.bias_hh_l0.size()), dtype=torch.float))
+
+        # Pass through LSTM
+        output, (hidden, cell) = self.lstm(packed_seq)
+        # Unpack the sequence
+        output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=False)
+
+        # Apply activation function
+        output = self.act(output)
+
+        # Concatenate outputs from both directions
+        output = torch.cat((output[:, :, :self.hidden_size], output[:, :, self.hidden_size:]), dim=2)
+
+        # Reconstruct the original features with dropout
+        reconstructed_X = self.fc(self.dropout(output))
+        reconstructed_X = reconstructed_X.permute(1, 0, 2)  # Back to (batch_size, seq_len, feature_dim)
+
+        # Mimic Transformer output format: return reconstructed features and hidden state (embedding)
+        embedding = output.permute(1, 0, 2)  # (batch_size, seq_length, hidden_size * 2)
+
+        return reconstructed_X, embedding
