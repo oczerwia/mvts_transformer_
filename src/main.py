@@ -169,8 +169,7 @@ def main(config):
                               # shuffle=True, # We can shuffle within 
                               num_workers=config['num_workers'],
                               pin_memory=True,
-                              collate_fn=collate_unsuperv,
-                              pin_memory_device=device)
+                              collate_fn=collate_unsuperv)
 
     trainer = runner_class(model, train_loader, device, loss_module, optimizer, l2_reg=output_reg,
                                  print_interval=config['print_interval'], console=config['console'])
