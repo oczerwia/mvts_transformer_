@@ -459,7 +459,7 @@ class SelfSupervisedLSTMImputer(nn.Module):
             bidirectional=True,
         )
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+        self.lstm.to(self.device)
 
         self.fc = nn.Linear(
             hidden_size * 2, feat_dim

@@ -281,9 +281,7 @@ class UnsupervisedRunner(BaseRunner):
 
         self.model = self.model.train()
 
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda:0')
-            self.model.to(self.device)
+        self.device = torch.device('cuda' if torch.cuda.is_available()else 'cpu')
 
         epoch_loss = 0  # total loss of epoch
         total_active_elements = 0  # total unmasked elements in epoch
@@ -336,10 +334,9 @@ class UnsupervisedRunner(BaseRunner):
     def evaluate(self, epoch_num=None, keep_all=True):
 
         self.model = self.model.eval()
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda:0')
-            self.model.to(self.device)
 
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        logger.info(f"DEVICE IS: {self.device}")
         epoch_loss = 0  # total loss of epoch
         total_active_elements = 0  # total unmasked elements in epoch
 
@@ -348,7 +345,7 @@ class UnsupervisedRunner(BaseRunner):
         for i, batch in enumerate(self.dataloader):
 
             X, targets, target_masks, padding_masks = batch
-            X.to(self.device)
+            X = X.to(self.device)
             targets.to(self.device)
             target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks.to(self.device)  # 0s: ignore
@@ -359,11 +356,12 @@ class UnsupervisedRunner(BaseRunner):
             target_masks = target_masks * padding_masks.unsqueeze(-1)
 
             logger.info(f"X is on {X.device}")
-            logger.info(f"model is on {self.model.weight.device}")
+            
             logger.info(f"targets is on {targets.device}")
             logger.info(f"target mask is on {target_masks.device}")
             logger.info(f"padding is on {padding_masks.device}")
             logger.info(f"prediction is on {predictions.device}")
+            logger.info(f"model is on {self.model.lstm.weight.device}")
 
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
             batch_loss = torch.sum(loss)
