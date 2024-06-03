@@ -346,10 +346,9 @@ class UnsupervisedRunner(BaseRunner):
 
             X, targets, target_masks, padding_masks = batch
             X = X.to(self.device)
-            targets.to(self.device)
-            target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
-            padding_masks.to(self.device)  # 0s: ignore
-            self.model.to(self.device)
+            targets = targets.to(self.device)
+            target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
+            padding_masks = padding_masks.to(self.device)  # 0s: ignore
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
             predictions.to(self.device)
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
@@ -361,7 +360,6 @@ class UnsupervisedRunner(BaseRunner):
             logger.info(f"target mask is on {target_masks.device}")
             logger.info(f"padding is on {padding_masks.device}")
             logger.info(f"prediction is on {predictions.device}")
-            logger.info(f"model is on {self.model.lstm.weight.device}")
 
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
             batch_loss = torch.sum(loss)
