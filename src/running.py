@@ -362,7 +362,7 @@ class UnsupervisedRunner(BaseRunner):
             logger.info(f"prediction is on {predictions.device}")
 
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
-            batch_loss = torch.sum(loss)
+            batch_loss = torch.sum(loss).cpu().item()
             mean_loss = batch_loss / len(loss)  # mean loss (over active elements) used for optimization the batch
 
             snr = self.masked_snr(predictions, targets, target_masks)
