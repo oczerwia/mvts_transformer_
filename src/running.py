@@ -295,11 +295,7 @@ class UnsupervisedRunner(BaseRunner):
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
             predictions = predictions.to(self.device)
 
-            logger.info(f"X is on {X.device}")
-            logger.info(f"targets is on {targets.device}")
-            logger.info(f"target mask is on {target_masks.device}")
-            logger.info(f"padding is on {padding_masks.device}")
-            logger.info(f"prediction is on {predictions.device}")
+            logger.info(f"train_epoch batch: {i}")
 
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
@@ -359,14 +355,6 @@ class UnsupervisedRunner(BaseRunner):
             predictions = predictions.to(self.device)
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
-
-            logger.info(f"Batch {i}")
-            logger.info(f"Data size {X.shape}")
-            logger.info(f"X is on {X.device}")
-            logger.info(f"targets is on {targets.device}")
-            logger.info(f"target mask is on {target_masks.device}")
-            logger.info(f"padding is on {padding_masks.device}")
-            logger.info(f"prediction is on {predictions.device}")
 
             loss = self.loss_module(predictions, targets, target_masks)  # (num_active,) individual loss (square error per element) for each active value in batch
             batch_loss = torch.sum(loss).cpu().item()
