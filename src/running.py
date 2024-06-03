@@ -243,7 +243,7 @@ class BaseRunner(object):
     def __init__(self, model, dataloader, device, loss_module, optimizer=None, l2_reg=None, print_interval=10, console=True):
 
         self.model = model
-        self.model
+        self.model.to(device)
         self.dataloader = dataloader
         self.device = device
         self.optimizer = optimizer
@@ -282,7 +282,7 @@ class UnsupervisedRunner(BaseRunner):
         self.model = self.model.train()
 
         if torch.cuda.is_available():
-            self.device = torch.device('cuda')
+            self.device = torch.device('cuda:0')
             self.model.to(self.device)
 
         epoch_loss = 0  # total loss of epoch
@@ -290,11 +290,11 @@ class UnsupervisedRunner(BaseRunner):
         for i, batch in enumerate(self.dataloader):
 
             X, targets, target_masks, padding_masks = batch
-            X = X.to(self.device)
-            targets = targets.to(self.device)
-            target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
-            padding_masks = padding_masks.to(self.device)  # 0s: ignore
-        
+            X.to(self.device)
+            targets.to(self.device)
+            target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
+            padding_masks.to(self.device)  # 0s: ignore
+            self.model.to(self.device)
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
 
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
@@ -337,7 +337,7 @@ class UnsupervisedRunner(BaseRunner):
 
         self.model = self.model.eval()
         if torch.cuda.is_available():
-            self.device = torch.device('cuda')
+            self.device = torch.device('cuda:0')
             self.model.to(self.device)
 
         epoch_loss = 0  # total loss of epoch
@@ -348,11 +348,11 @@ class UnsupervisedRunner(BaseRunner):
         for i, batch in enumerate(self.dataloader):
 
             X, targets, target_masks, padding_masks = batch
-            X = X.to(self.device)
-            targets = targets.to(self.device)
-            target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
-            padding_masks = padding_masks.to(self.device)  # 0s: ignore
-
+            X.to(self.device)
+            targets.to(self.device)
+            target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
+            padding_masks.to(self.device)  # 0s: ignore
+            self.model.to(self.device)
             predictions, embedding = self.model(X, padding_masks)  # (batch_size, padded_length, feat_dim)
 
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
