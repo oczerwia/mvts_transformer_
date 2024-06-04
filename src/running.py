@@ -254,7 +254,7 @@ class BaseRunner(object):
 
         self.epoch_metrics = OrderedDict()
 
-        self.accumulation_steps = 64
+        self.accumulation_steps = 64 / 4
 
     def train_epoch(self, epoch_num=None):
         raise NotImplementedError('Please override in child class')
@@ -283,10 +283,11 @@ class UnsupervisedRunner(BaseRunner):
 
         self.model = self.model.train()
 
-        self.device = torch.device('cuda' if torch.cuda.is_available()else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         epoch_loss = 0  # total loss of epoch
         total_active_elements = 0  # total unmasked elements in epoch
+        
         for i, batch in enumerate(self.dataloader):
             logger.info(f"train_epoch batch: {i}")
             logger.info(f"DATA SHAPE: {batch[0].shape}")
@@ -296,7 +297,7 @@ class UnsupervisedRunner(BaseRunner):
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
 
-            predictions = self.model(X.to(self.device), padding_masks)  # (batch_size, padded_length, feat_dim)
+            predictions, embeddings = self.model(X.to(self.device), padding_masks)  # (batch_size, padded_length, feat_dim)
 
             # Cascade noise masks (batch_size, padded_length, feat_dim) and padding masks (batch_size, padded_length)
             target_masks = target_masks * padding_masks.unsqueeze(-1)
@@ -316,18 +317,17 @@ class UnsupervisedRunner(BaseRunner):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
             
+                snr = self.masked_snr(predictions, targets, target_masks)
+                correlation = self.masked_correlation(predictions, targets, target_masks)
 
-            snr = self.masked_snr(predictions, targets, target_masks)
-            correlation = self.masked_correlation(predictions, targets, target_masks)
+                metrics = {"loss": mean_loss.item(), "snr": snr, "correlation": correlation}
+                if i % self.print_interval == 0:
+                    ending = "" if epoch_num is None else 'Epoch {} '.format(epoch_num)
+                    self.print_callback(i, metrics, prefix='Training ' + ending)
 
-            metrics = {"loss": mean_loss.item(), "snr": snr, "correlation": correlation}
-            if i % self.print_interval == 0:
-                ending = "" if epoch_num is None else 'Epoch {} '.format(epoch_num)
-                self.print_callback(i, metrics, prefix='Training ' + ending)
-
-            with torch.no_grad():
-                total_active_elements += len(loss)
-                epoch_loss += batch_loss.item()  # add total loss of batch
+                with torch.no_grad():
+                    total_active_elements += len(loss)
+                    epoch_loss += batch_loss.item()  # add total loss of batch
 
         epoch_loss = epoch_loss / total_active_elements  # average loss per element for whole epoch
         self.epoch_metrics['epoch'] = epoch_num
