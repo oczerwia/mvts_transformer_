@@ -224,7 +224,7 @@ def validate(val_evaluator, tensorboard_writer, config, best_metrics, best_value
         best_metrics = aggr_metrics.copy()
 
         pred_filepath = os.path.join(config['pred_dir'], 'best_predictions')
-        # np.savez(pred_filepath, **per_batch)
+        np.savez(pred_filepath, **per_batch)
 
     return aggr_metrics, best_metrics, best_value
 
@@ -312,22 +312,21 @@ class UnsupervisedRunner(BaseRunner):
 
 
             total_loss.backward()
-            if i + 1 % self.accumulation_steps == 0: # Perform gradient accumulation for smaller batch sizes
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=4.0)
-                self.optimizer.step()
-                self.optimizer.zero_grad()
-            
-                snr = self.masked_snr(predictions, targets, target_masks)
-                correlation = self.masked_correlation(predictions, targets, target_masks)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=4.0)
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+        
+            snr = self.masked_snr(predictions, targets, target_masks)
+            correlation = self.masked_correlation(predictions, targets, target_masks)
 
-                metrics = {"loss": mean_loss.item(), "snr": snr, "correlation": correlation}
-                if i % self.print_interval == 0:
-                    ending = "" if epoch_num is None else 'Epoch {} '.format(epoch_num)
-                    self.print_callback(i, metrics, prefix='Training ' + ending)
+            metrics = {"loss": mean_loss.item(), "snr": snr, "correlation": correlation}
+            if i % self.print_interval == 0:
+                ending = "" if epoch_num is None else 'Epoch {} '.format(epoch_num)
+                self.print_callback(i, metrics, prefix='Training ' + ending)
 
-                with torch.no_grad():
-                    total_active_elements += len(loss)
-                    epoch_loss += batch_loss.item()  # add total loss of batch
+            with torch.no_grad():
+                total_active_elements += len(loss)
+                epoch_loss += batch_loss.item()  # add total loss of batch
 
         epoch_loss = epoch_loss / total_active_elements  # average loss per element for whole epoch
         self.epoch_metrics['epoch'] = epoch_num
