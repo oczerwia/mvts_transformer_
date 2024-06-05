@@ -549,7 +549,7 @@ class TimeSeriesImputerCNN(nn.Module):
         self.max_len = max_len
         self.conv_layers = nn.ModuleList([])
         self.pool_layers = nn.ModuleList([])
-
+        i = 0
         # Define multiple convolutional layers with different kernel sizes
         for kernel_size, num_filter in zip(kernel_sizes, num_filters):
             self.conv_layers.append(
@@ -557,9 +557,11 @@ class TimeSeriesImputerCNN(nn.Module):
                     in_channels=feat_dim,
                     out_channels=num_filter,
                     kernel_size=kernel_size,
+                    padding=1,  # Changed padding mode
                 )
             )
-            self.pool_layers.append(nn.MaxPool1d(kernel_size=kernel_size, stride=1))
+            self.pool_layers.append(nn.MaxPool1d(kernel_size=kernel_size, stride=1, padding=1))  # Removed ceil_mode (optional)
+            i = i + 1
 
         # Flatten the output of convolutional layers (similar to transformer flattening)
         self.flatten = nn.Flatten()
@@ -594,8 +596,8 @@ class TimeSeriesImputerCNN(nn.Module):
         # Apply masking to data before feeding into convolutions (set masked values to 0)
         X = X.permute(0, 2, 1)
 
-        pad_len = max(self.kernel_sizes) // 2  # Calculate padding length based on largest kernel size
-        X = nn.functional.pad(X, (pad_len, pad_len), mode='reflect')
+        pad_len = 5  # Calculate padding length based on largest kernel size
+        X = nn.functional.pad(X, (pad_len, pad_len))
         print(f"Shape after padding: {X.size()}")
 
 
@@ -606,6 +608,7 @@ class TimeSeriesImputerCNN(nn.Module):
             print(f"Output shape after conv layer: {out.size()}")
             out = self.act(out)  # ReLU activation
             out = pool(out)
+            print(f"Output shape after pool layer: {out.size()}")
             skip_connections.append(out)
 
         # Concatenate skip connections for preserving local features
