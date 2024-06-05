@@ -510,10 +510,10 @@ class UnsupervisedRunner(BaseRunner):
         batch_count = mask.shape[0]
         batch_snr = []
         for batch in range(batch_count):
-            batch_pred = y_pred[batch, :, :]
-            batch_mask = mask[batch, :, :]
-            per_channel_masks = batch_mask.sum(axis=0)
-            masked_pred = torch.masked_select(batch_pred, batch_mask).detach().numpy()
+            batch_pred = y_pred[batch, :, :].cpu()
+            batch_mask = mask[batch, :, :].cpu()
+            per_channel_masks = batch_mask.sum(axis=0).cpu()
+            masked_pred = torch.masked_select(batch_pred, batch_mask).cpu().numpy()
 
             # Calculate the mean and standard deviation of the data
             mini_batch_snr = []
