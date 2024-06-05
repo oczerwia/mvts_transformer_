@@ -546,8 +546,12 @@ class UnsupervisedRunner(BaseRunner):
     ) -> torch.Tensor:
         """Calculates the Pearson correlation coefficient between masked y_true and y_pred."""
 
-        masked_pred = torch.masked_select(y_pred, mask)
-        masked_true = torch.masked_select(y_true, mask)
+        masked_pred = torch.masked_select(y_pred, mask).detach().cpu().numpy()
+        masked_true = torch.masked_select(y_true, mask).detach().cpu().numpy()
+
+        corr = np.corrcoef(masked_true, masked_pred)[0][1]
+        return corr
+        
 
         # Ensure we have enough elements for correlation calculation (avoid division by zero)
         if masked_pred.numel() < 2 or masked_true.numel() < 2:
