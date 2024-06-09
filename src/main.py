@@ -11,7 +11,7 @@ import logging
 from src.datasets.dataset import collate_unsuperv
 from src.utils import utils
 
-logging.basicConfig(format='%(asctime)s | %(levelname)s : %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s | %(levelname)s : %(message)s', level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
 import os
@@ -324,8 +324,13 @@ def main(config):
         # Difficulty scheduling
 
         if config['harden'] and harden_steps(epoch):
+            old_ratio = train_loader.dataset.masking_ratio
+            old_mask_len = train_loader.dataset.mean_mask_length
             train_loader.dataset.update()
             val_loader.dataset.update()
+            logger.info(f"Hardening Masking Ratio: {old_ratio} -> {train_loader.dataset.masking_ratio}")
+            logger.info(f"Hardening Masking Length: {old_mask_len} -> {train_loader.dataset.mean_mask_length}")
+            
 
     # Export evolution of metrics over epochs
     header = metrics_names

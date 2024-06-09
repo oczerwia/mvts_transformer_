@@ -100,6 +100,11 @@ class StreamDataset(Dataset):
             X, self.masking_ratio, self.mean_mask_length, self.mode, self.distribution
         )
         return mask
+    
+    def update(self):
+        self.mean_mask_length = self.mean_mask_length + 1
+        self.masking_ratio = self.masking_ratio + 0.05
+        
 
 class __StreamDataset(IterableDataset):
     def __init__(self, data_class, masking_ratio, mean_mask_length, mode, distribution, config, **kwargs):

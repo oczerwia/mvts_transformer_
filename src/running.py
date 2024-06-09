@@ -357,7 +357,7 @@ def validate(
 
 def harden_steps(epoch):
 
-    if epoch in [100, 140, 160, 220, 280, 340]:
+    if epoch in [1, 2, 3]:# [100, 140, 160, 220, 280, 340]:
         return True
     else:
         return False

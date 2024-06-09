@@ -10,25 +10,8 @@
             "cwd": "${workspaceFolder}",
             "justMyCode": true,
             "args": [
-                "--load_model", "outputs/regression_embeddings_2024-05-09_14-14-48_x37/checkpoints/model_best.pth",
-                "--test_only", "testset",
-                "--extract_embeddings_only", "raw",
-                "--test_pattern", "regression/FloodModeling1/FloodModeling1_TEST.ts",
-                "--output_dir", "embeddings", 
-                "--comment", "regression from scratch",
-                "--name", "regression_embeddings",
-                "--records_file", "regression_records_embeddings.xls",
-                "--data_dir", "regression/FloodModeling1",
-                "--data_class", "tsra",
-                "--pattern", "test",
-                "--val_ratio", "0.0",
-                "--epochs", "10",
-                "--lr", "0.001",
-                "--optimizer","RAdam",
-                "--pos_encoding","learnable",
-                "--task","imputation",
-                "--d_model", "128",
-            ]
+                "--config", "config_extract.json"
+            ] 
         },
         {
             "name": "TST_pretrain",
@@ -39,38 +22,11 @@
             "cwd": "${workspaceFolder}",
             "justMyCode": true,
             "args": [
-                "--output_dir", "outputs", 
-                "--comment", "test fnirs training on high density dataset",
-                "--name", "fnirs_high_density_imputation",
-                "--records_file", "fnirs_high_density_test.xls",
-                "--data_dir", "/Users/oliver/TU_BERLIN/MASTER/mvts_transformer_/imputation/chuncks",
-                "--data_class", "fnirs",
-                "--pattern", "train_",
-                "--val_pattern", "val_",
-                "--test_pattern", "test_",
-                "--epochs", "700",
-                "--lr", "0.001",
-                "--lr_step", "1000000",
-                "--lr_factor", "0.1",
-                "--optimizer","RAdam",
-                "--pos_encoding","learnable",
-                "--task","imputation_generator",
-                "--d_model", "512",
-                "--dim_feedforward", "512",
-                "--num_heads", "8",
-                "--batch_size", "64",
-                "--dropout", "0.1",
-                "--activation", "gelu",
-                "--subsample_factor", "1",
-                "--model", "transformer",
-                "--normalization_layer", "LayerNorm",
-                "--max_seq_len", "1700",
-                // "--gpu", "-1",
-                // "--num_workers", "2",
+                "--config", "config.json"
             ] 
         },
         {
-            "name": "TST_config",
+            "name": "TST_test",
             "type": "debugpy",
             "program": "src/main.py",
             "request": "launch",
@@ -78,8 +34,8 @@
             "cwd": "${workspaceFolder}",
             "justMyCode": true,
             "args": [
-                "--config", "config.json"
+                "--config", "config_test.json",
             ] 
-        }
+        },
     ]
 }
