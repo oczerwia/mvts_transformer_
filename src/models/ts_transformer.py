@@ -20,12 +20,7 @@ def model_factory(config, data):
             raise x
 
     if (task == "imputation") or (task == "imputation_generator") or (task == "transduction"):
-        if config['model'] == 'LINEAR':
-            return DummyTSTransformerEncoder(feat_dim, max_seq_len, config['d_model'], config['num_heads'],
-                                             config['num_layers'], config['dim_feedforward'], dropout=config['dropout'],
-                                             pos_encoding=config['pos_encoding'], activation=config['activation'],
-                                             norm=config['normalization_layer'], freeze=config['freeze'])
-        elif config['model'] == 'transformer':
+        if config['model'] == 'transformer':
             return TSTransformerEncoder(feat_dim, max_seq_len, config['d_model'], config['num_heads'],
                                         config['num_layers'], config['dim_feedforward'], dropout=config['dropout'],
                                         pos_encoding=config['pos_encoding'], activation=config['activation'],
@@ -33,15 +28,7 @@ def model_factory(config, data):
 
     if (task == "classification") or (task == "regression"):
         num_labels = len(data.class_names) if task == "classification" else data.labels_df.shape[1]  # dimensionality of labels
-        if config['model'] == 'LINEAR':
-            return DummyTSTransformerEncoderClassiregressor(feat_dim, max_seq_len, config['d_model'],
-                                                            config['num_heads'],
-                                                            config['num_layers'], config['dim_feedforward'],
-                                                            num_classes=num_labels,
-                                                            dropout=config['dropout'], pos_encoding=config['pos_encoding'],
-                                                            activation=config['activation'],
-                                                            norm=config['normalization_layer'], freeze=config['freeze'])
-        elif config['model'] == 'transformer':
+        if config['model'] == 'transformer':
             return TSTransformerEncoderClassiregressor(feat_dim, max_seq_len, config['d_model'],
                                                         config['num_heads'],
                                                         config['num_layers'], config['dim_feedforward'],
@@ -58,6 +45,8 @@ def _get_activation_fn(activation):
         return F.relu
     elif activation == "gelu":
         return F.gelu
+    elif activation == "tanh":
+        return F.tanh
     raise ValueError("activation should be relu/gelu, not {}".format(activation))
 
 
