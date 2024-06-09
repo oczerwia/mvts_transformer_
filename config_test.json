@@ -1,0 +1,22 @@
+{
+    "output_dir": "outputs",
+    "name": "fnirs_high_density_imputation",
+    "records_file": "fnirs_high_density_test.xls",
+    "test_only": "testset",
+    "data_dir": "/Users/oliver/TU_BERLIN/MASTER/mvts_transformer_/imputation/chuncks",
+    "load_model": "/Users/oliver/TU_BERLIN/MASTER/mvts_transformer_/outputs/experiment_transformer_RAdam_1_0.1_4_relu_False_2024-06-09_14-12-31/checkpoints/model_last.pth",
+    "data_class": "fnirs",
+    "task": "imputation_generator",
+    "model": "transformer",
+    "max_seq_len": 1700,
+    "num_workers": 0,
+    "pattern": "train_",
+    "val_pattern": "val_",
+    "test_pattern": "test_",
+    "d_model": 512,
+    "dim_feedforward": 512,
+    "num_heads": 8,
+    "num_layers":4,
+    "batch_size": 4,
+    "extract_embeddings_only": false
+}

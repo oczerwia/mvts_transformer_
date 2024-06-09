@@ -158,13 +158,13 @@ class Options(object):
                                  help='Dropout applied to most transformer encoder layers')
         self.parser.add_argument('--pos_encoding', choices={'fixed', 'learnable'}, default='fixed',
                                  help='Internal dimension of transformer embeddings')
-        self.parser.add_argument('--activation', choices={'relu', 'gelu'}, default='gelu',
+        self.parser.add_argument('--activation', choices={'relu', 'gelu', 'tanh'}, default='gelu',
                                  help='Activation to be used in transformer encoder')
         self.parser.add_argument('--normalization_layer', choices={'BatchNorm', 'LayerNorm'}, default='BatchNorm',
                                  help='Normalization layer to be used internally in transformer encoder')
 
         # Testing process
-        self.parser.add_argument('--extract_embeddings_only', default='raw',
+        self.parser.add_argument('--extract_embeddings_only', choices={True, False}, default='raw',
                                  help="""If given, will only extract emneddings for the provided test data.""")
 
     def parse(self):

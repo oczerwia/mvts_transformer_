@@ -2,8 +2,6 @@ import json
 import logging
 import os
 import pickle
-import random
-import string
 import sys
 import time
 import traceback
@@ -25,6 +23,7 @@ from datasets.dataset import (
 )
 from models.loss import l2_reg_loss
 from torch.utils.data import DataLoader
+from src.utils.statsloading import append_to_csv_pandas
 from utils import analysis, utils
 
 logger = logging.getLogger("__main__")
@@ -127,11 +126,10 @@ def setup(args):
     formatted_timestamp = initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S") #
      
     global experiment_name
-    experiment_name = f"experiment_{config["model"]}_\
-            {config["optimizer"]}_{config["epochs"]}_\
-            {config["dropout"]}_{config["batch_size"]}_\
-            {config["activation"]}_{config["harden"]}_\
-            {initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")}"
+    if config["test_only"] == "testset":
+        experiment_name = f'TEST_experiment_{config["model"]}_{config["optimizer"]}_{config["epochs"]}_{config["dropout"]}_{config["batch_size"]}_{config["activation"]}_{config["harden"]}_{initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")}'
+    else:
+        experiment_name = f'experiment_{config["model"]}_{config["optimizer"]}_{config["epochs"]}_{config["dropout"]}_{config["batch_size"]}_{config["activation"]}_{config["harden"]}_{initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")}'
 
     # Save general parameters, model parameters and results seperately.
     general_parameter_list = ["model", "optimizer", 
@@ -143,6 +141,7 @@ def setup(args):
                               "masking_ratio", "mean_mask_length",
                               ]
     general_parameters = {key: config.get(key) for key in general_parameter_list}
+    general_parameters["file_name"] = experiment_name
     append_to_csv_pandas(experiment_paths["general"], general_parameters)
 
     # Save model specific parameters
@@ -158,8 +157,10 @@ def setup(args):
         model_specific_parameter_list = ["kernel_sizes", "num_filters", ]
 
     model_specific_parameters = {key: config.get(key) for key in model_specific_parameter_list}
-    append_to_csv_pandas(experiment_paths["model_specific"], model_specific_parameters)
+    model_specific_parameters["file_name"] = experiment_name
+    append_to_csv_pandas(experiment_paths["model_specific"][config["model"]], model_specific_parameters)
 
+    output_dir = os.path.join(output_dir, experiment_name)
 
     config['initial_timestamp'] = formatted_timestamp
     config['output_dir'] = output_dir
@@ -482,7 +483,8 @@ class UnsupervisedRunner(BaseRunner):
         logger.info(f"DEVICE IS: {self.device}")
         epoch_loss = 0  # total loss of epoch
         total_active_elements = 0  # total unmasked elements in epoch
-
+        epoch_snr = []
+        epoch_correlation = []
         if keep_all:
             per_batch = {
                 "target_masks": [],
@@ -518,13 +520,15 @@ class UnsupervisedRunner(BaseRunner):
             )  # mean loss (over active elements) used for optimization the batch
 
             snr = self.masked_snr(predictions, targets, target_masks)
+            epoch_snr.append(snr)
             correlation = self.masked_correlation(predictions, targets, target_masks)
+            epoch_correlation.append(correlation)
 
             if keep_all:
-                per_batch["target_masks"].append(target_masks.cpu().numpy())
-                per_batch["targets"].append(targets.cpu().numpy())
-                per_batch["predictions"].append(predictions.cpu().numpy())
-                per_batch["metrics"].append([loss.cpu().numpy()])
+                per_batch["target_masks"].append(target_masks.detach().cpu().numpy())
+                per_batch["targets"].append(targets.detach().cpu().numpy())
+                per_batch["predictions"].append(predictions.detach().cpu().numpy())
+                per_batch["metrics"].append([loss.detach().cpu().numpy()])
 
             metrics = {"loss": mean_loss, "snr": snr, "correlation": correlation}
             if i % self.print_interval == 0:
@@ -539,6 +543,8 @@ class UnsupervisedRunner(BaseRunner):
         )  # average loss per element for whole epoch
         self.epoch_metrics["epoch"] = epoch_num
         self.epoch_metrics["loss"] = epoch_loss
+        self.epoch_metrics["SNR"] = np.mean(epoch_snr)
+        self.epoch_metrics["Correlation"] = np.mean(epoch_correlation)
 
         if keep_all:
             return self.epoch_metrics, per_batch
@@ -644,7 +650,6 @@ class UnsupervisedRunner(BaseRunner):
             return per_batch
         else:
             return self.epoch_metrics
-
 
 class SupervisedRunner(BaseRunner):
 

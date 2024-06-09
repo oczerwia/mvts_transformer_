@@ -9,11 +9,11 @@ Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery and Data Mi
 import logging
 
 from src.datasets.dataset import collate_unsuperv
+from src.utils import utils
 
 logging.basicConfig(format='%(asctime)s | %(levelname)s : %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-import json
 import os
 import sys
 import time
@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import torch
 from datasets.data import Normalizer, data_factory
+from datasets.dataset import collate_unsuperv
 from models.loss import get_loss_module
 from models.ts_transformer import model_factory
 from optimizers import get_optimizer
@@ -32,18 +33,6 @@ from running import NEG_METRICS, harden_steps, pipeline_factory, setup, validate
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from datasets.dataset import collate_unsuperv
-from datasets.datasplit import split_dataset
-from models.loss import get_loss_module
-from models.ts_transformer import model_factory
-from optimizers import get_optimizer
-
-# Project modules
-from options import Options
-from running import NEG_METRICS, check_progress, pipeline_factory, setup, validate
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-from utils import utils
 
 
 def main(config):
@@ -161,7 +150,6 @@ def main(config):
         test_loader = DataLoader(
             dataset=test_dataset,
             batch_size=config["batch_size"],
-            # shuffle=False,
             num_workers=config["num_workers"],
             pin_memory=True,
             collate_fn=collate_unsuperv,
@@ -195,7 +183,9 @@ def main(config):
             aggr_metrics_test, per_batch_test = test_evaluator.evaluate(keep_all=True)
             print_str = "Test Summary: "
             for k, v in aggr_metrics_test.items():
-                print_str += "{}: {:8f} | ".format(k, v)
+                if v is None:
+                    v=0
+                print_str += f"{k}: {np.round(v, 8)} | "
             logger.info(print_str)
             return
 
