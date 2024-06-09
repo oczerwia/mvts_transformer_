@@ -102,21 +102,6 @@ class MaskedMSELoss(nn.Module):
         nrmse = torch.divide(self.mse_loss(masked_pred, masked_true).sqrt(), self.mse_loss(masked_pred, masked_true).sqrt().max())
         return nrmse
     
-    def masked_snr(self, y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
-        masked_pred = torch.masked_select(y_pred, mask)
-        masked_true = torch.masked_select(y_true, mask)
-
-        # Calculate mean squared error (noise) for masked data
-        noise = torch.mean((masked_pred - masked_true) ** 2)
-
-        # Ensure no division by zero (silent handling)
-        with torch.no_grad():
-            # Calculate the signal power (assuming masked_true represents the signal)
-            signal = torch.mean(masked_true ** 2)
-            # Prevent division by zero if the signal is zero
-            snr = torch.where(signal != 0, 10 * torch.log10(signal / noise), 0)
-
-        return snr.mean() 
     
     def mse_loss_(self,
                 y_pred: torch.Tensor,
