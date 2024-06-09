@@ -1,19 +1,38 @@
-import numpy as np
-from torch.utils.data import Dataset, IterableDataset, DataLoader
-import torch
-import pandas as pd
-from itertools import cycle, chain
+import logging
+import math
+import os
 import random
+from itertools import chain, cycle
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.distributed
+import torch.utils.data as data
+from torch.utils.data import DataLoader, Dataset, IterableDataset
+
+logger = logging.getLogger(__name__)
+
 
 class ImputationDataset(Dataset):
     """Dynamically computes missingness (noise) mask for each sample"""
 
-    def __init__(self, data, indices, mean_mask_length=3, masking_ratio=0.15,
-                 mode='separate', distribution='geometric', exclude_feats=None):
+    def __init__(
+        self,
+        data,
+        indices,
+        mean_mask_length=3,
+        masking_ratio=0.15,
+        mode="separate",
+        distribution="geometric",
+        exclude_feats=None,
+    ):
         super(ImputationDataset, self).__init__()
 
         self.data = data  # this is a subclass of the BaseData class in data.py
-        self.IDs = indices  # list of data IDs, but also mapping between integer index and ID
+        self.IDs = (
+            indices  # list of data IDs, but also mapping between integer index and ID
+        )
         self.feature_df = self.data.feature_df.loc[self.IDs]
 
         self.masking_ratio = masking_ratio
@@ -34,8 +53,14 @@ class ImputationDataset(Dataset):
         """
 
         X = self.feature_df.loc[self.IDs[ind]].values  # (seq_length, feat_dim) array
-        mask = noise_mask(X, self.masking_ratio, self.mean_mask_length, self.mode, self.distribution,
-                          self.exclude_feats)  # (seq_length, feat_dim) boolean array
+        mask = noise_mask(
+            X,
+            self.masking_ratio,
+            self.mean_mask_length,
+            self.mode,
+            self.distribution,
+            self.exclude_feats,
+        )  # (seq_length, feat_dim) boolean array
 
         return torch.from_numpy(X), torch.from_numpy(mask), self.IDs[ind]
 
@@ -47,59 +72,89 @@ class ImputationDataset(Dataset):
         return len(self.IDs)
     
 
-class StreamDataset(IterableDataset):
-    """https://medium.com/speechmatics/how-to-build-a-streaming-dataloader-with-pytorch-a66dd891d9dd"""
-
-    def __init__(self, 
-                 data_class, # dataloader class
-                 masking_ratio,
-                 mean_mask_length,
-                 mode,
-                 distribution,
-                 **kwargs # catch code artifacts for now
-                ):
-        self.data_paths = data_class.all_df # so much hacking
+class StreamDataset(Dataset):
+    def __init__(self, data_class, masking_ratio, mean_mask_length, mode, distribution, config, **kwargs):
+        self.data_paths = sorted(data_class.all_df)  # List of file paths
         self.masking_ratio = masking_ratio
         self.mean_mask_length = mean_mask_length
         self.mode = mode
         self.distribution = distribution
+        self.config = config
+        self.logger = logger
+        self.length = len(self.data_paths)
+        self.logger.info(f"Dataset initialized with {self.length} data paths")
 
-    @property
-    def shuffled_data_list(self):
-        return random.sample(self.data_paths, len(self.data_paths))
+    def __getitem__(self, index):
+        file_path = self.data_paths[index]
+        # self.logger.info(f"Loading data from: {file_path}")
+        print(f"Loading data from: {file_path}")
+        X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
+        mask = self.noise_mask(X)
+        return torch.from_numpy(X), torch.from_numpy(mask)
 
-    def process_data(self, file_paths):
-        """Load single window.
-        
-        Olivers Implementation assumes that each sample
-        is stored in a single file.
-
-        Data is shuffled after each epoch.
-        Hack number 4302534.
-        """
-        for file_path in file_paths:
-
-            X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
-            mask = noise_mask(X, self.masking_ratio, self.mean_mask_length, 
-                              self.mode, self.distribution) 
-            yield torch.from_numpy(X), torch.from_numpy(mask)
-
-    def get_stream(self, file_paths):
-        return self.process_data(file_paths)
-
-    def update(self):
-        """Artifact of harden feature,
-        will not be used in normal implementation."""
-        self.mean_mask_length = min(20, self.mean_mask_length + 1)
-        self.masking_ratio = min(1, self.masking_ratio + 0.05)
-
-
-    def __iter__(self):
-        return self.get_stream(self.data_paths)
-    
     def __len__(self):
-        return len(self.data_paths)
+        return self.length
+
+    def noise_mask(self, X):
+        mask = noise_mask(
+            X, self.masking_ratio, self.mean_mask_length, self.mode, self.distribution
+        )
+        return mask
+
+class __StreamDataset(IterableDataset):
+    def __init__(self, data_class, masking_ratio, mean_mask_length, mode, distribution, config, **kwargs):
+        self.data_paths = data_class.all_df  # List of file paths
+        self.masking_ratio = masking_ratio
+        self.mean_mask_length = mean_mask_length
+        self.mode = mode
+        self.distribution = distribution
+        self.config = config
+        self.start = 0
+        self.end = len(self.data_paths)
+        logger.info(f"Dataset initialized with {self.end} data paths")
+
+    def load_multiprocessing(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            iter_start, iter_end = self.start, self.end
+        else:
+            num_workers = worker_info.num_workers
+            per_worker = int(math.ceil((self.end - self.start) / float(num_workers)))
+            worker_id = worker_info.id
+            iter_start = self.start + worker_id * per_worker
+            iter_end = min(iter_start + per_worker, self.end)
+            logger.info(f"Worker ID: {worker_id} processing range [{iter_start} : {iter_end}]")
+        return iter_start, iter_end
+
     
+    def __iter__(self):
+        self.iter_start, self.iter_end = self.load_multiprocessing()
+        self.iter_index = self.iter_start
+        logger.info(f"Initializing iterator: start={self.iter_start}, end={self.iter_end}")
+        return self
+
+    def __next__(self):
+        if self.iter_index >= self.iter_end:
+            raise StopIteration
+
+        file_path = self.data_paths[self.iter_index]
+        logger.info(f"Worker loading data from: {file_path}")
+        X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
+        mask = self.noise_mask(X)
+
+        self.iter_index += 1
+        logger.info(f"Data retrieved in shape of {X.shape}")
+        logger.info(f"Masked on a single channel: {mask.sum(axis=1)[0]}")
+        return torch.from_numpy(X), torch.from_numpy(mask)
+
+    def __len__(self):
+        return self.end - self.start
+
+    def noise_mask(self, X):
+        mask = noise_mask(
+            X, self.masking_ratio, self.mean_mask_length, self.mode, self.distribution
+        )
+        return mask
 
 class TransductionDataset(Dataset):
 
@@ -107,10 +162,14 @@ class TransductionDataset(Dataset):
         super(TransductionDataset, self).__init__()
 
         self.data = data  # this is a subclass of the BaseData class in data.py
-        self.IDs = indices  # list of data IDs, but also mapping between integer index and ID
+        self.IDs = (
+            indices  # list of data IDs, but also mapping between integer index and ID
+        )
         self.feature_df = self.data.feature_df.loc[self.IDs]
 
-        self.mask_feats = mask_feats  # list/array of indices corresponding to features to be masked
+        self.mask_feats = (
+            mask_feats  # list/array of indices corresponding to features to be masked
+        )
         self.start_hint = start_hint  # proportion at beginning of time series which will not be masked
         self.end_hint = end_hint  # end_hint: proportion at the end of time series which will not be masked
 
@@ -126,8 +185,9 @@ class TransductionDataset(Dataset):
         """
 
         X = self.feature_df.loc[self.IDs[ind]].values  # (seq_length, feat_dim) array
-        mask = transduct_mask(X, self.mask_feats, self.start_hint,
-                              self.end_hint)  # (seq_length, feat_dim) boolean array
+        mask = transduct_mask(
+            X, self.mask_feats, self.start_hint, self.end_hint
+        )  # (seq_length, feat_dim) boolean array
 
         return torch.from_numpy(X), torch.from_numpy(mask), self.IDs[ind]
 
@@ -160,18 +220,23 @@ def collate_superv(data, max_len=None):
     features, labels, IDs = zip(*data)
 
     # Stack and pad features and masks (convert 2D to 3D tensors, i.e. add batch dimension)
-    lengths = [X.shape[0] for X in features]  # original sequence length for each time series
+    lengths = [
+        X.shape[0] for X in features
+    ]  # original sequence length for each time series
     if max_len is None:
         max_len = max(lengths)
-    X = torch.zeros(batch_size, max_len, features[0].shape[-1])  # (batch_size, padded_length, feat_dim)
+    X = torch.zeros(
+        batch_size, max_len, features[0].shape[-1]
+    )  # (batch_size, padded_length, feat_dim)
     for i in range(batch_size):
         end = min(lengths[i], max_len)
         X[i, :end, :] = features[i][:end, :]
 
     targets = torch.stack(labels, dim=0)  # (batch_size, num_labels)
 
-    padding_masks = padding_mask(torch.tensor(lengths, dtype=torch.int16),
-                                 max_len=max_len)  # (batch_size, padded_length) boolean tensor, "1" means keep
+    padding_masks = padding_mask(
+        torch.tensor(lengths, dtype=torch.int16), max_len=max_len
+    )  # (batch_size, padded_length) boolean tensor, "1" means keep
 
     return X, targets, padding_masks, IDs
 
@@ -182,7 +247,9 @@ class ClassiregressionDataset(Dataset):
         super(ClassiregressionDataset, self).__init__()
 
         self.data = data  # this is a subclass of the BaseData class in data.py
-        self.IDs = indices  # list of data IDs, but also mapping between integer index and ID
+        self.IDs = (
+            indices  # list of data IDs, but also mapping between integer index and ID
+        )
         self.feature_df = self.data.feature_df.loc[self.IDs]
 
         self.labels_df = self.data.labels_df.loc[self.IDs]
@@ -242,11 +309,13 @@ def compensate_masking(X, mask):
     # number of unmasked elements of feature vector for each time step
     num_active = torch.sum(mask, dim=-1).unsqueeze(-1)  # (batch_size, seq_length, 1)
     # to avoid division by 0, set the minimum to 1
-    num_active = torch.max(num_active, torch.ones(num_active.shape, dtype=torch.int16))  # (batch_size, seq_length, 1)
+    num_active = torch.max(
+        num_active, torch.ones(num_active.shape, dtype=torch.int16)
+    )  # (batch_size, seq_length, 1)
     return X.shape[-1] * X / num_active
 
 
-def collate_unsuperv(data, max_len=None, mask_compensation=False):
+def collate_unsuperv(data, mask_compensation=False):
     """Build mini-batch tensors from a list of (X, mask) tuples. Mask input. Create
     Args:
         data: len(batch_size) list of tuples (X, mask).
@@ -266,12 +335,16 @@ def collate_unsuperv(data, max_len=None, mask_compensation=False):
     features, masks = zip(*data)
 
     # Stack and pad features and masks (convert 2D to 3D tensors, i.e. add batch dimension)
-    lengths = [X.shape[0] for X in features]  # original sequence length for each time series
-    if max_len is None:
-        max_len = max(lengths)
-    X = torch.zeros(batch_size, max_len, features[0].shape[-1])  # (batch_size, padded_length, feat_dim)
-    target_masks = torch.zeros_like(X,
-                                    dtype=torch.bool)  # (batch_size, padded_length, feat_dim) masks related to objective
+    lengths = [
+        X.shape[0] for X in features
+    ]  # original sequence length for each time series
+    max_len = 1700
+    X = torch.zeros(
+        batch_size, max_len, features[0].shape[-1]
+    )  # (batch_size, padded_length, feat_dim)
+    target_masks = torch.zeros_like(
+        X, dtype=torch.bool
+    )  # (batch_size, padded_length, feat_dim) masks related to objective
     for i in range(batch_size):
         end = min(lengths[i], max_len)
         X[i, :end, :] = features[i][:end, :]
@@ -282,12 +355,21 @@ def collate_unsuperv(data, max_len=None, mask_compensation=False):
     if mask_compensation:
         X = compensate_masking(X, target_masks)
 
-    padding_masks = padding_mask(torch.tensor(lengths, dtype=torch.int16), max_len=max_len)  # (batch_size, padded_length) boolean tensor, "1" means keep
+    padding_masks = padding_mask(
+        torch.tensor(lengths, dtype=torch.int16), max_len=max_len
+    )  # (batch_size, padded_length) boolean tensor, "1" means keep
     target_masks = ~target_masks  # inverse logic: 0 now means ignore, 1 means predict
     return X, targets, target_masks, padding_masks
 
 
-def noise_mask(X, masking_ratio, lm=3, mode='separate', distribution='geometric', exclude_feats=None):
+def noise_mask(
+    X,
+    masking_ratio,
+    lm=3,
+    mode="separate",
+    distribution="geometric",
+    exclude_feats=None,
+):
     """
     Creates a random boolean mask of the same shape as X, with 0s at places where a feature should be masked.
     Args:
@@ -308,21 +390,39 @@ def noise_mask(X, masking_ratio, lm=3, mode='separate', distribution='geometric'
     if exclude_feats is not None:
         exclude_feats = set(exclude_feats)
 
-    if distribution == 'geometric':  # stateful (Markov chain)
-        if mode == 'separate':  # each variable (feature) is independent
+    if distribution == "geometric":  # stateful (Markov chain)
+        if mode == "separate":  # each variable (feature) is independent
             mask = np.ones(X.shape, dtype=bool)
             for m in range(X.shape[1]):  # feature dimension
                 if exclude_feats is None or m not in exclude_feats:
-                    mask[:, m] = geom_noise_mask_single(X.shape[0], lm, masking_ratio)  # time dimension
+                    mask[:, m] = geom_noise_mask_single(
+                        X.shape[0], lm, masking_ratio
+                    )  # time dimension
         else:  # replicate across feature dimension (mask all variables at the same positions concurrently)
-            mask = np.tile(np.expand_dims(geom_noise_mask_single(X.shape[0], lm, masking_ratio), 1), X.shape[1])
+            mask = np.tile(
+                np.expand_dims(
+                    geom_noise_mask_single(X.shape[0], lm, masking_ratio), 1
+                ),
+                X.shape[1],
+            )
     else:  # each position is independent Bernoulli with p = 1 - masking_ratio
-        if mode == 'separate':
-            mask = np.random.choice(np.array([True, False]), size=X.shape, replace=True,
-                                    p=(1 - masking_ratio, masking_ratio))
+        if mode == "separate":
+            mask = np.random.choice(
+                np.array([True, False]),
+                size=X.shape,
+                replace=True,
+                p=(1 - masking_ratio, masking_ratio),
+            )
         else:
-            mask = np.tile(np.random.choice(np.array([True, False]), size=(X.shape[0], 1), replace=True,
-                                            p=(1 - masking_ratio, masking_ratio)), X.shape[1])
+            mask = np.tile(
+                np.random.choice(
+                    np.array([True, False]),
+                    size=(X.shape[0], 1),
+                    replace=True,
+                    p=(1 - masking_ratio, masking_ratio),
+                ),
+                X.shape[1],
+            )
 
     return mask
 
@@ -340,14 +440,22 @@ def geom_noise_mask_single(L, lm, masking_ratio):
         (L,) boolean numpy array intended to mask ('drop') with 0s a sequence of length L
     """
     keep_mask = np.ones(L, dtype=bool)
-    p_m = 1 / lm  # probability of each masking sequence stopping. parameter of geometric distribution.
-    p_u = p_m * masking_ratio / (1 - masking_ratio)  # probability of each unmasked sequence stopping. parameter of geometric distribution.
+    p_m = (
+        1 / lm
+    )  # probability of each masking sequence stopping. parameter of geometric distribution.
+    p_u = (
+        p_m * masking_ratio / (1 - masking_ratio)
+    )  # probability of each unmasked sequence stopping. parameter of geometric distribution.
     p = [p_m, p_u]
 
     # Start in state 0 with masking_ratio probability
-    state = int(np.random.rand() > masking_ratio)  # state 0 means masking, 1 means not masking
+    state = int(
+        np.random.rand() > masking_ratio
+    )  # state 0 means masking, 1 means not masking
     for i in range(L):
-        keep_mask[i] = state  # here it happens that state and masking value corresponding to state are identical
+        keep_mask[i] = (
+            state  # here it happens that state and masking value corresponding to state are identical
+        )
         if np.random.rand() < p[state]:
             state = 1 - state
 
@@ -360,8 +468,12 @@ def padding_mask(lengths, max_len=None):
     where 1 means keep element at this position (time step)
     """
     batch_size = lengths.numel()
-    max_len = max_len or lengths.max_val()  # trick works because of overloading of 'or' operator for non-boolean types
-    return (torch.arange(0, max_len, device=lengths.device)
-            .type_as(lengths)
-            .repeat(batch_size, 1)
-            .lt(lengths.unsqueeze(1)))
+    max_len = (
+        max_len or lengths.max_val()
+    )  # trick works because of overloading of 'or' operator for non-boolean types
+    return (
+        torch.arange(0, max_len, device=lengths.device)
+        .type_as(lengths)
+        .repeat(batch_size, 1)
+        .lt(lengths.unsqueeze(1))
+    )
