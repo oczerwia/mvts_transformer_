@@ -24,15 +24,14 @@
     "dropout": 0.1,
     "activation": "relu",
     "subsample_factor": 1,
-    "model": "conv_net",
+    "model": "transformer",
     "normalization_layer": "LayerNorm",
     "max_seq_len": 1700,
     "num_workers": 4,
     "lstm_hidden_layers": 4,
     "forget_gate_bias": 0.9,
-    "kernel_sizes": [2, 5],
+    "kernel_sizes": [3, 8],
     "num_filters": [16, 32],
     "mean_mask_length": 170,
-    "masking_ratio": 0.3,
-    "save_all": ""
-  }
+    "masking_ratio": 0.3
+}
