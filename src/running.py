@@ -4,20 +4,17 @@ import os
 import traceback
 import json
 from datetime import datetime
-import string
-import random
 from collections import OrderedDict
 import time
 import pickle
 from functools import partial
-
-import ipdb
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
 import sklearn
 
 from utils import utils, analysis
+from utils.statsloading import append_to_csv_pandas
 from models.loss import l2_reg_loss
 from datasets.dataset import ImputationDataset, TransductionDataset, ClassiregressionDataset, collate_unsuperv, collate_superv, StreamDataset
 
@@ -28,6 +25,13 @@ NEG_METRICS = {'loss'}  # metrics for which "better" is less
 
 val_times = {"total_time": 0, "count": 0}
 
+experiment_name = ""
+experiment_paths = {"general": "outputs/general_parameters.csv", 
+                    "model_specific": {"transformer": "outputs/transformer_parameters.csv",
+                                       "lstm": "outputs/lstm_parameters.csv",
+                                       },
+                    "scores": "outputs/all_scores.csv",
+                    }
 
 def pipeline_factory(config):
     """For the task specified in the configuration returns the corresponding combination of
@@ -43,7 +47,7 @@ def pipeline_factory(config):
     if task == "imputation_generator":
         return partial(StreamDataset, mean_mask_length=config['mean_mask_length'],
                        masking_ratio=config['masking_ratio'], mode=config['mask_mode'],
-                       distribution=config['mask_distribution'], exclude_feats=config['exclude_feats']),\
+                       distribution=config['mask_distribution']),\
                         collate_unsuperv, UnsupervisedRunner
     if task == "transduction":
         return partial(TransductionDataset, mask_feats=config['mask_feats'],
@@ -80,13 +84,47 @@ def setup(args):
         raise IOError(
             "Root directory '{}', where the directory of the experiment will be created, must exist".format(output_dir))
 
-    output_dir = os.path.join(output_dir, config['experiment_name'])
+    # for experiment naming, 
+    # use a structured combination of HP parameters and 
+    # time stamp to order by training initialization time.
+    formatted_timestamp = initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S") #
+     
+    global experiment_name
+    experiment_name = f"experiment_{config["model"]}_\
+            {config["optimizer"]}_{config["epochs"]}_\
+            {config["dropout"]}_{config["batch_size"]}_\
+            {config["activation"]}_{config["harden"]}_\
+            {initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")}"
 
-    formatted_timestamp = initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")
+    # Save general parameters, model parameters and results seperately.
+    general_parameter_list = ["model", "optimizer", 
+                              "epochs", "dropout", 
+                              "batch_size", "activation", 
+                              "harden", 
+                              "lr", "lr_factor", "lr_step",
+                              "mask_distributions", "mask_mode",
+                              "masking_ratio", "mean_mask_length",
+                              ]
+    general_parameters = {key: config.get(key) for key in general_parameter_list}
+    append_to_csv_pandas(experiment_paths["general"], general_parameters)
+
+    # Save model specific parameters
+    if config["model"] == "transformer":
+        model_specific_parameter_list = ["d_model", "dim_feedforward", "global_reg",
+                                         "l2_reg", "normalization_layer",
+                                         "num_heads", "num_layers", "pos_encoding",
+                                         "subsample_factor", 
+                                         ]
+    elif config["model"] == "lstm":
+        model_specific_parameter_list = ["forget_gate_bias", "lstm_hidden_layers", ]
+    elif config["model"] == "cnn":
+        model_specific_parameter_list = ["kernel_sizes", "num_filters", ]
+
+    model_specific_parameters = {key: config.get(key) for key in model_specific_parameter_list}
+    append_to_csv_pandas(experiment_paths["model_specific"], model_specific_parameters)
+
+
     config['initial_timestamp'] = formatted_timestamp
-    if (not config['no_timestamp']) or (len(config['experiment_name']) == 0):
-        rand_suffix = "".join(random.choices(string.ascii_letters + string.digits, k=3))
-        output_dir += "_" + formatted_timestamp + "_" + rand_suffix
     config['output_dir'] = output_dir
     config['save_dir'] = os.path.join(output_dir, 'checkpoints')
     config['pred_dir'] = os.path.join(output_dir, 'predictions')
@@ -200,14 +238,7 @@ def validate(val_evaluator, tensorboard_writer, config, best_metrics, best_value
     global val_times
     val_times["total_time"] += eval_runtime
     val_times["count"] += 1
-    avg_val_time = val_times["total_time"] / val_times["count"]
-    avg_val_batch_time = avg_val_time / len(val_evaluator.dataloader)
-    avg_val_sample_time = avg_val_time / len(val_evaluator.dataloader.dataset)
-    logger.info("Avg val. time: {} hours, {} minutes, {} seconds".format(*utils.readable_time(avg_val_time)))
-    logger.info("Avg batch val. time: {} seconds".format(avg_val_batch_time))
-    logger.info("Avg sample val. time: {} seconds".format(avg_val_sample_time))
 
-    print()
     print_str = 'Epoch {} Validation Summary: '.format(epoch)
     for k, v in aggr_metrics.items():
         tensorboard_writer.add_scalar('{}/val'.format(k), v, epoch)
@@ -230,7 +261,7 @@ def validate(val_evaluator, tensorboard_writer, config, best_metrics, best_value
 
 
 
-def check_progress(epoch):
+def harden_steps(epoch):
 
     if epoch in [100, 140, 160, 220, 280, 340]:
         return True
@@ -339,14 +370,6 @@ class UnsupervisedRunner(BaseRunner):
             targets = targets.to(self.device)
             target_masks = target_masks.to(self.device)  # 1s: mask and predict, 0s: unaffected input (ignore)
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
-
-            # TODO: for debugging
-            # input_ok = utils.check_tensor(X, verbose=False, zero_thresh=1e-8, inf_thresh=1e4)
-            # if not input_ok:
-            #     print("Input problem!")
-            #     ipdb.set_trace()
-            #
-            # utils.check_model(self.model, verbose=False, stop_on_error=True)
 
             predictions, embedding = self.model(X.to(self.device), padding_masks)  # (batch_size, padded_length, feat_dim)
 
