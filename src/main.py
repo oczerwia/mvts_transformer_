@@ -8,28 +8,21 @@ Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery and Data Mi
 
 import logging
 
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s : %(message)s", level=logging.INFO, force=True
-)
+from src.datasets.dataset import collate_unsuperv
+
+logging.basicConfig(format='%(asctime)s | %(levelname)s : %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 import json
 import os
-import pickle
 import sys
 import time
-<<<<<<< HEAD
-=======
-
-import numpy as np
->>>>>>> master
 
 import numpy as np
 # 3rd party packages
 import pandas as pd
 import torch
 from datasets.data import Normalizer, data_factory
-<<<<<<< HEAD
 from models.loss import get_loss_module
 from models.ts_transformer import model_factory
 from optimizers import get_optimizer
@@ -39,7 +32,6 @@ from running import NEG_METRICS, harden_steps, pipeline_factory, setup, validate
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-=======
 from datasets.dataset import collate_unsuperv
 from datasets.datasplit import split_dataset
 from models.loss import get_loss_module
@@ -51,7 +43,6 @@ from options import Options
 from running import NEG_METRICS, check_progress, pipeline_factory, setup, validate
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
->>>>>>> master
 from utils import utils
 
 
@@ -109,6 +100,8 @@ def main(config):
             config["data_dir"], pattern=config["val_pattern"], n_proc=-1, config=config
         )
         val_indices = val_data.all_IDs
+
+
 
     ##################################### MODEL SETUP ############################################
     # Create model
@@ -339,11 +332,8 @@ def main(config):
                 param_group["lr"] = lr
 
         # Difficulty scheduling
-<<<<<<< HEAD
+
         if config['harden'] and harden_steps(epoch):
-=======
-        if config["harden"] and check_progress(epoch):
->>>>>>> master
             train_loader.dataset.update()
             val_loader.dataset.update()
 
