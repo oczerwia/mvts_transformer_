@@ -7,6 +7,7 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.nn.modules import (BatchNorm1d, Dropout, Linear, MultiheadAttention,
                               TransformerEncoderLayer)
+from cross_former import Crossformer
 
 
 def model_factory(config, data):
@@ -66,6 +67,17 @@ def model_factory(config, data):
                 activation=config["activation"],
                 forget_gate_bias=config["forget_gate_bias"],
             )
+        elif config["model"] == "crossformer":
+            return Crossformer(data_dim=feat_dim,
+                               seg_len=max_seq_len,
+                               win_size=config["window_size"],
+                               d_model=config["d_model"],
+                               d_ff=config["dim_feedforward"],
+                               n_heads=config["num_heads"],
+                               e_layers=config["e_layers"],
+                               dropout=config["dropout"],
+                               )
+
 
     if (task == "classification") or (task == "regression"):
         num_labels = (
