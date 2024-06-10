@@ -600,29 +600,6 @@ class UnsupervisedRunner(BaseRunner):
         return corr
         
 
-        # Ensure we have enough elements for correlation calculation (avoid division by zero)
-        if masked_pred.numel() < 2 or masked_true.numel() < 2:
-            return torch.tensor(0.0)
-
-        # Standardize masked data (zero mean, unit variance)
-        mean_pred = masked_pred.mean()
-        std_pred = masked_pred.std()
-        masked_pred_std = (masked_pred - mean_pred) / std_pred
-
-        mean_true = masked_true.mean()
-        std_true = masked_true.std()
-        masked_true_std = (masked_true - mean_true) / std_true
-
-        # Calculate covariance between standardized masked data (alternative approach)
-        covariance = torch.mean(masked_pred_std * masked_true_std)
-
-        # Calculate Pearson correlation coefficient
-        correlation = covariance / (std_pred * std_true)
-
-        # Clip correlation to a valid range (-1, 1) for numerical stability
-        # correlation = torch.clamp(correlation, min=-1.0, max=1.0)
-
-        return correlation
 
     def extract_embeddings(self, epoch_num=None, keep_all=True):
 
