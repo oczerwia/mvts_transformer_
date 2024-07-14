@@ -54,7 +54,7 @@ def initialize_config(trial):
     # Hyperparameters
     config["lr"] = trial.suggest_loguniform("lr", 1e-5, 1e-1)
     config["batch_size"] = trial.suggest_categorical("batch_size", [8, 16, 32, 64, 128, 256])
-    # config["epochs"] = trial.suggest_int("epochs", 100, 500)
+    config["epochs"] = trial.suggest_int("epochs", 100, 500)
     config["l2_reg"] = trial.suggest_loguniform("l2_reg", 1e-5, 1e-1)
     config["dropout"] = trial.suggest_uniform("dropout", 0.0, 0.5)
     config["n_layers"] = trial.suggest_categorical("n_layers", [4,6,8,12])
@@ -155,7 +155,7 @@ def evaluate_test_set(config, test_data, model, device, loss_module, logger):
             if v is None:
                 v=0
             print_str += f"{k}: {np.round(v, 8)} | "
-        logger.info(print_str)
+        # logger.info(print_str)
         return
     
 def initialize_dataloader(config, model, my_data, val_data, device, optimizer, loss_module):
@@ -223,7 +223,7 @@ def main(trial):
     
 
     # Build data
-    logger.info("Loading and preprocessing data ...")
+    # logger.info("Loading and preprocessing data ...")
     data_class = data_factory[config["data_class"]]
     my_data = data_class(
         config["data_dir"],
@@ -252,7 +252,7 @@ def main(trial):
 
     ##################################### MODEL SETUP ############################################
     # Create model
-    logger.info("Creating model ...")
+    # .info("Creating model ...")
     model = model_factory(config, my_data)
 
     if config["freeze"]:
@@ -262,8 +262,8 @@ def main(trial):
             else:
                 param.requires_grad = False
 
-    logger.info("Model:\n{}".format(model))
-    logger.info("Total number of parameters: {}".format(utils.count_parameters(model)))
+    # logger.info("Model:\n{}".format(model))
+    # logger.info("Total number of parameters: {}".format(utils.count_parameters(model)))
     logger.info(
         "Trainable parameters: {}".format(utils.count_parameters(model, trainable=True))
     )
@@ -332,23 +332,8 @@ def main(trial):
         for k, v in aggr_metrics_train.items():
             print_str += "{}: {:8f} | ".format(k, v)
         logger.info(print_str)
-        logger.info(
-            "Epoch runtime: {} hours, {} minutes, {} seconds\n".format(
-                *utils.readable_time(epoch_runtime)
-            )
-        )
         total_epoch_time += epoch_runtime
         avg_epoch_time = total_epoch_time / (epoch - start_epoch)
-        avg_batch_time = avg_epoch_time / len(train_loader)
-        avg_sample_time = avg_epoch_time / len(train_dataset)
-        logger.info(
-            "Avg epoch train. time: {} hours, {} minutes, {} seconds".format(
-                *utils.readable_time(avg_epoch_time)
-            )
-        )
-        logger.info("Avg batch train. time: {} seconds".format(avg_batch_time))
-        logger.info("Avg sample train. time: {} seconds".format(avg_sample_time))
-
         # evaluate if first or last epoch or at specified interval
         if (
             (epoch == config["epochs"])
@@ -437,22 +422,6 @@ if __name__ == "__main__":
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
-
-    print("Study statistics: ")
-    print("  Number of finished trials: ", len(study.trials))
-    print("  Number of pruned trials: ", len(pruned_trials))
-    print("  Number of complete trials: ", len(complete_trials))
-
-    plot_pareto_front(study, target_names=['loss', 'Correlation'])
-    plot_param_importances(
-        study, target=lambda t: t.values[0], target_name="loss"
-    )
-    plot_optimization_history(study, target=lambda t: t.values[0], target_name="loss")
-
-    plot_contour(study, target=lambda t: t.values[0], target_name="loss")
-    plot_timeline(study)
-
-
 
     print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
 
