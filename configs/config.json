@@ -4,7 +4,7 @@
     "name": "fnirs_high_density_imputation",
     "records_file": "fnirs_high_density_test.xls",
     "data_dir": "/Users/oliver/TU_BERLIN/MASTER/mvts_transformer_/imputation/chuncks",
-    "save_all": true,
+    "save_all": "",
     "data_class": "fnirs",
     "pattern": "train_",
     "val_pattern": "val_",
