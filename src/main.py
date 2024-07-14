@@ -219,7 +219,6 @@ def main(trial):
     logger.info("Using device: {}".format(device))
     if device == "cuda":
         logger.info("Device index: {}".format(torch.cuda.current_device()))
-        config["num_workers"] = 8
 
     
 
