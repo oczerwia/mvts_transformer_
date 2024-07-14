@@ -295,7 +295,7 @@ def evaluate(evaluator):
 
 
 def validate(
-    val_evaluator, tensorboard_writer, config, best_metrics, best_value, epoch
+    val_evaluator, config, best_metrics, best_value, epoch
 ):
     """Run an evaluation on the validation set while logging metrics, and handle outcome"""
 
@@ -329,7 +329,6 @@ def validate(
 
     print_str = 'Epoch {} Validation Summary: '.format(epoch)
     for k, v in aggr_metrics.items():
-        tensorboard_writer.add_scalar("{}/val".format(k), v, epoch)
         print_str += "{}: {:8f} | ".format(k, v)
     logger.info(print_str)
 

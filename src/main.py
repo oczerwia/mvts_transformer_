@@ -231,7 +231,6 @@ def main(config):
         console=config["console"],
     )
 
-    tensorboard_writer = SummaryWriter(config["tensorboard_dir"])
 
     best_value = (
         1e16 if config["key_metric"] in NEG_METRICS else -1e16
@@ -243,7 +242,7 @@ def main(config):
 
     # Evaluate on validation before training
     aggr_metrics_val, best_metrics, best_value = validate(
-        val_evaluator, tensorboard_writer, config, best_metrics, best_value, epoch=0
+        val_evaluator, config, best_metrics, best_value, epoch=0
     )
     metrics_names, metrics_values = zip(*aggr_metrics_val.items())
     metrics.append(list(metrics_values))
@@ -260,7 +259,6 @@ def main(config):
         print()
         print_str = "Epoch {} Training Summary: ".format(epoch)
         for k, v in aggr_metrics_train.items():
-            tensorboard_writer.add_scalar("{}/train".format(k), v, epoch)
             print_str += "{}: {:8f} | ".format(k, v)
         logger.info(print_str)
         logger.info(
@@ -288,7 +286,6 @@ def main(config):
         ):
             aggr_metrics_val, best_metrics, best_value = validate(
                 val_evaluator,
-                tensorboard_writer,
                 config,
                 best_metrics,
                 best_value,
