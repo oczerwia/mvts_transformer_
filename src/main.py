@@ -318,6 +318,9 @@ def main(trial):
     metrics_names, metrics_values = zip(*aggr_metrics_val.items())
     metrics.append(list(metrics_values))
 
+    early_stopping_epochs = 10
+    epsilon = 1e-6
+
     logger.info("Starting training...")
     for epoch in range(start_epoch + 1, config["epochs"] + 1):
         mark = epoch if config['save_all'] else 'last'
@@ -383,6 +386,23 @@ def main(trial):
             val_loader.dataset.update()
             logger.info(f"Hardening Masking Ratio: {old_ratio} -> {train_loader.dataset.masking_ratio}")
             logger.info(f"Hardening Masking Length: {old_mask_len} -> {train_loader.dataset.mean_mask_length}")
+
+        if (best_metrics['loss'] <= (prev_loss + epsilon)) \
+            and (best_metrics['loss'] >= (prev_loss - epsilon)) \
+            and (best_metrics['Correlation'] <= (prev_correlation + epsilon))\
+            and (best_metrics['Correlation'] >= (prev_correlation - epsilon)):
+                early_stopping_counter += 1
+        else:
+            early_stopping_counter = 0
+
+        # Check if early stopping condition is met
+        if early_stopping_counter >= early_stopping_epochs:
+            logger.info("Early stopping condition met. Stopping training.")
+            break
+
+        # Update previous loss and correlation
+        prev_loss = best_metrics['loss']
+        prev_correlation = best_metrics['Correlation']
             
 
     # Export evolution of metrics over epochs
