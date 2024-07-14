@@ -10,3 +10,4 @@ tensorboard==1.15.0
 matplotlib==3.3.4
 scikit_learn==0.23.2
 protobuf==3.17.3
+optuna==3.6.1

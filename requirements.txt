@@ -10,3 +10,4 @@ tensorboard
 matplotlib
 numpy
 scikit_learn
+optuna
