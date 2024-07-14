@@ -11,8 +11,6 @@ import pandas as pd
 from datasets import utils
 from tqdm import tqdm
 
-logger = logging.getLogger("__main__")
-
 
 class Normalizer(object):
     """
@@ -187,7 +185,7 @@ class CedalionfNIRS(BaseData):
             raise Exception("No .csv files found using pattern: '{}'".format(pattern))
 
 
-        return input_paths[:4] # ONLY RETURNS LIST OF RELEVANT PATHS
+        return input_paths # ONLY RETURNS LIST OF RELEVANT PATHS
 
 
     def __len__(self):
