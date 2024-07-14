@@ -319,7 +319,9 @@ def main(trial):
     metrics.append(list(metrics_values))
 
     early_stopping_epochs = 10
-    epsilon = 1e-6
+    epsilon = 1e-5
+    prev_loss = 1
+    prev_correlation = 0
 
     logger.info("Starting training...")
     for epoch in range(start_epoch + 1, config["epochs"] + 1):
@@ -387,10 +389,12 @@ def main(trial):
             logger.info(f"Hardening Masking Ratio: {old_ratio} -> {train_loader.dataset.masking_ratio}")
             logger.info(f"Hardening Masking Length: {old_mask_len} -> {train_loader.dataset.mean_mask_length}")
 
-        if (best_metrics['loss'] <= (prev_loss + epsilon)) \
-            and (best_metrics['loss'] >= (prev_loss - epsilon)) \
-            and (best_metrics['Correlation'] <= (prev_correlation + epsilon))\
-            and (best_metrics['Correlation'] >= (prev_correlation - epsilon)):
+        loss_delta = np.abs(prev_loss - best_metrics['loss'])
+        correlation_delta = np.abs(prev_correlation - best_metrics['Correlation'])
+        logger.info(f"Loss delta: {loss_delta} ({loss_delta < epsilon}), Correlation delta: {correlation_delta} ({loss_delta < epsilon})")
+
+        if loss_delta < epsilon and correlation_delta < epsilon:
+                
                 early_stopping_counter += 1
         else:
             early_stopping_counter = 0
