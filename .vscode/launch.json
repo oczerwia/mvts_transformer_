@@ -37,5 +37,17 @@
                 "--config", "config_test.json",
             ] 
         },
+        {
+            "name": "TST_new_model",
+            "type": "debugpy",
+            "program": "src/main.py",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true,
+            "args": [
+                "--config", "config_new_model.json",
+            ] 
+        },
     ]
 }

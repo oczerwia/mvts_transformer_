@@ -8,23 +8,17 @@ import traceback
 from collections import OrderedDict
 from datetime import datetime
 from functools import partial
-import torch
-from torch.utils.data import DataLoader
+
 import numpy as np
 import sklearn
 import torch
-from datasets.dataset import (
-    ClassiregressionDataset,
-    ImputationDataset,
-    StreamDataset,
-    TransductionDataset,
-    collate_superv,
-    collate_unsuperv,
-)
+from datasets.dataset import (ClassiregressionDataset, ImputationDataset, StreamDataset,
+                              TransductionDataset, collate_superv, collate_unsuperv)
 from models.loss import l2_reg_loss
 from torch.utils.data import DataLoader
-from src.utils.statsloading import append_to_csv_pandas
 from utils import analysis, utils
+
+from src.utils.statsloading import append_to_csv_pandas
 
 logger = logging.getLogger("__main__")
 
@@ -36,6 +30,7 @@ experiment_name = ""
 experiment_paths = {"general": "outputs/general_parameters.csv", 
                     "model_specific": {"transformer": "outputs/transformer_parameters.csv",
                                        "lstm": "outputs/lstm_parameters.csv",
+                                       "crossformer": "outputs/lstm_parameters.csv",
                                        },
                     "scores": "outputs/all_scores.csv",
                     }
@@ -155,6 +150,8 @@ def setup(args):
         model_specific_parameter_list = ["forget_gate_bias", "lstm_hidden_layers", ]
     elif config["model"] == "cnn":
         model_specific_parameter_list = ["kernel_sizes", "num_filters", ]
+    elif config["model"] == "crossformer":
+        model_specific_parameter_list = ["factor", "win_size", "e_layers",]
 
     model_specific_parameters = {key: config.get(key) for key in model_specific_parameter_list}
     model_specific_parameters["file_name"] = experiment_name
@@ -504,7 +501,7 @@ class UnsupervisedRunner(BaseRunner):
             padding_masks = padding_masks.to(self.device)  # 0s: ignore
 
             predictions, embedding = self.model(
-                X, padding_masks
+                X , padding_masks
             )  # (batch_size, padded_length, feat_dim)
 
             predictions = predictions.to(self.device)
@@ -606,7 +603,7 @@ class UnsupervisedRunner(BaseRunner):
         self.model = self.model.eval()
 
         if keep_all:
-            per_batch = {"embeddings": []}
+            per_batch = {"embeddings": [], "predictions": [], "positions": [], "y_true": []}
         for i, batch in enumerate(self.dataloader):
 
             X, targets, target_masks, padding_masks = batch
@@ -622,6 +619,9 @@ class UnsupervisedRunner(BaseRunner):
 
             if keep_all:
                 per_batch["embeddings"].append(embedding.cpu().numpy())
+                per_batch["predictions"].append(predictions.cpu().numpy())
+                per_batch["positions"].append(target_masks.cpu().numpy())
+                per_batch["y_true"].append(X.cpu().numpy())
 
         if keep_all:
             return per_batch
