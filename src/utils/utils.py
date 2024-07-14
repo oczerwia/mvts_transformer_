@@ -170,7 +170,6 @@ def register_record(filepath, timestamp, experiment_name, best_metrics, final_me
         row_values += list(final_metrics_values)
 
     if not os.path.exists(filepath):  # Create a records file for the first time
-        logger.warning("Records file '{}' does not exist! Creating new file ...".format(filepath))
         directory = os.path.dirname(filepath)
         if len(directory) and not os.path.exists(directory):
             os.makedirs(directory)

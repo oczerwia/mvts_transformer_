@@ -82,11 +82,9 @@ class StreamDataset(Dataset):
         self.config = config
         self.logger = logger
         self.length = len(self.data_paths)
-        self.logger.info(f"Dataset initialized with {self.length} data paths")
 
     def __getitem__(self, index):
         file_path = self.data_paths[index]
-        # self.logger.info(f"Loading data from: {file_path}")
         print(f"Loading data from: {file_path}")
         X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
         mask = self.noise_mask(X)
@@ -148,8 +146,6 @@ class __StreamDataset(IterableDataset):
         mask = self.noise_mask(X)
 
         self.iter_index += 1
-        logger.info(f"Data retrieved in shape of {X.shape}")
-        logger.info(f"Masked on a single channel: {mask.sum(axis=1)[0]}")
         return torch.from_numpy(X), torch.from_numpy(mask)
 
     def __len__(self):
