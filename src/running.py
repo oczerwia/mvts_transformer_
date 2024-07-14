@@ -84,15 +84,8 @@ def pipeline_factory(config):
         raise NotImplementedError("Task '{}' not implemented".format(task))
 
 
-def setup(args):
-    """Prepare training session: read configuration from file (takes precedence), create directories.
-    Input:
-        args: arguments object from argparse
-    Returns:
-        config: configuration dictionary
-    """
-
-    config = args.__dict__  # configuration dictionary
+def load_setup(args):
+    config = args.__dict__
 
     if args.config_filepath is not None:
         logger.info("Reading configuration ...")
@@ -104,6 +97,19 @@ def setup(args):
             )
             traceback.print_exc()
             sys.exit(1)
+
+    return config
+    
+
+def setup(config):
+    """Prepare training session: read configuration from file (takes precedence), create directories.
+    Input:
+        args: arguments object from argparse
+    Returns:
+        config: configuration dictionary
+    """
+ # configuration dictionary
+
 
     # Create output directory
     initial_timestamp = datetime.now()

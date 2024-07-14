@@ -8,7 +8,7 @@
     "pattern": "train_",
     "val_pattern": "val_",
     "test_pattern": "test_",
-    "epochs": 4,
+    "epochs": 1,
     "lr": 0.001,
     "lr_step": [100,150,200],
     "lr_factor": [0.5, 0.5, 0.5],

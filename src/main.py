@@ -19,6 +19,18 @@ import sys
 import time
 
 import numpy as np
+import optuna
+from optuna.trial import TrialState
+from optuna.visualization import plot_pareto_front
+from optuna.visualization import plot_edf
+from optuna.visualization import plot_intermediate_values
+from optuna.visualization import plot_optimization_history
+from optuna.visualization import plot_parallel_coordinate
+from optuna.visualization import plot_param_importances
+from optuna.visualization import plot_contour
+from optuna.visualization import plot_slice
+from optuna.visualization import plot_timeline
+
 # 3rd party packages
 import pandas as pd
 import torch
@@ -29,19 +41,37 @@ from models.ts_transformer import model_factory
 from optimizers import get_optimizer
 # Project modules
 from options import Options
-from running import NEG_METRICS, harden_steps, pipeline_factory, setup, validate
+from running import NEG_METRICS, harden_steps, load_setup, pipeline_factory, setup, validate
 from torch.utils.data import DataLoader
 
 
-
-def initialize_hyperparameters(config):
-
-    return config
-
-def initialize_config():
+def initialize_config(trial):
+    """Here we initialize all hyperparameters."""
     args = Options().parse()  # `argsparse` object
-    config = setup(args)  # configuration dictionary
-    config = initialize_hyperparameters(config)
+    config = load_setup(args)
+    
+    
+    # Hyperparameters
+    config["lr"] = trial.suggest_loguniform("lr", 1e-5, 1e-1)
+    config["batch_size"] = trial.suggest_categorical("batch_size", [8, 16, 32, 64, 128, 256])
+    # config["epochs"] = trial.suggest_int("epochs", 100, 500)
+    config["l2_reg"] = trial.suggest_loguniform("l2_reg", 1e-5, 1e-1)
+    config["dropout"] = trial.suggest_uniform("dropout", 0.0, 0.5)
+    config["n_layers"] = trial.suggest_categorical("n_layers", [4,6,8,12])
+    config["n_heads"] = trial.suggest_categorical("n_heads", [4,6,8,12])
+    config["d_model"] = trial.suggest_categorical("d_model", [32, 64, 128, 256, 512, 1024])
+
+    config["activation"] = trial.suggest_categorical("activation", ["relu", "gelu"])
+    config["subsample_factor"] = trial.suggest_categorical("subsample_factor", [1, 2, 4])
+    config["lr_factor"] = [trial.suggest_float("lr_factor_1", 0.0, 0.9),
+                            trial.suggest_float("lr_factor_2", 0.0, 0.9),
+                              trial.suggest_float("lr_factor_3", 0.0, 0.9)]
+    config["normalization_layer"] = trial.suggest_categorical("normalization_layer", ["LayerNorm", "BatchNorm"])
+
+    config["optimizer"] = trial.suggest_categorical("optimizer", ["RAdam", "Adam"])
+
+    config = setup(config)
+
     return config
 
 def initialize_logging(config):
@@ -64,7 +94,7 @@ def initialize_logging(config):
     logger.addHandler(console_handler)
 
     # initialize seed
-    torch.manual_seed(config["seed"])
+    torch.manual_seed(42)
 
     # Add file logging besides stdout
     file_handler = logging.FileHandler(os.path.join(config["output_dir"], "output.log"))
@@ -172,10 +202,10 @@ def initialize_dataloader(config, model, my_data, val_data, device, optimizer, l
 
     return train_evaluator, train_loader, train_dataset, val_evaluator,val_loader, val_dataset
 
-def main():
+def main(trial):
 
 
-    config = initialize_config()
+    config = initialize_config(trial)
     total_epoch_time = 0
 
     total_start_time = time.time()
@@ -189,6 +219,9 @@ def main():
     logger.info("Using device: {}".format(device))
     if device == "cuda":
         logger.info("Device index: {}".format(torch.cuda.current_device()))
+        config["num_workers"] = 8
+
+    
 
     # Build data
     logger.info("Loading and preprocessing data ...")
@@ -244,7 +277,7 @@ def main():
     lr_step = 0  # current step index of `lr_step`
     lr = config["lr"]  # current learning step
     # Load model and optimizer state
-    if args.load_model:
+    if config["load_model"]:
         model, optimizer, start_epoch = utils.load_model(
             model,
             config["load_model"],
@@ -267,7 +300,7 @@ def main():
         return
     
     train_evaluator, train_loader, train_dataset, val_evaluator,val_loader, val_dataset = initialize_dataloader(
-        config, model, my_data, val_data, device, optimizer, logger, loss_module
+        config, model, my_data, val_data, device, optimizer, loss_module
         )
 
 
@@ -288,7 +321,7 @@ def main():
 
     logger.info("Starting training...")
     for epoch in range(start_epoch + 1, config["epochs"] + 1):
-        mark = epoch if config["save_all"] else "last"
+        mark = epoch if config['save_all'] else 'last'
         # torch.multiprocessing.get_context('spawn').join()
         epoch_start_time = time.time()
         aggr_metrics_train = train_evaluator.train_epoch(
@@ -386,24 +419,46 @@ def main():
     )
     metrics_df.to_csv(metrics_filepath)
 
-    # Export record metrics to a file accumulating records from all experiments
-    utils.register_record(
-        config["records_file"],
-        config["initial_timestamp"],
-        config["experiment_name"],
-        best_metrics,
-        aggr_metrics_val,
-        comment=config["comment"],
-    )
-
     logger.info(
         "Best {} was {}. Other metrics: {}".format(
             config["key_metric"], best_value, best_metrics
         )
     )
 
-    return best_value
+    return best_metrics['loss'], best_metrics['Correlation']
 
 if __name__ == "__main__":
 
-    main()
+    study = optuna.create_study(directions=["minimize","maximize"],
+                                sampler=optuna.samplers.TPESampler(),
+                                storage="sqlite:///db.sqlite3")
+    
+    study.optimize(main, n_trials=5, n_jobs=1, gc_after_trial=True)
+    study.trials_dataframe().to_csv("results.csv")
+
+    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+    complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+
+    print("Study statistics: ")
+    print("  Number of finished trials: ", len(study.trials))
+    print("  Number of pruned trials: ", len(pruned_trials))
+    print("  Number of complete trials: ", len(complete_trials))
+
+    plot_pareto_front(study, target_names=['loss', 'Correlation'])
+    plot_param_importances(
+        study, target=lambda t: t.values[0], target_name="loss"
+    )
+    plot_optimization_history(study, target=lambda t: t.values[0], target_name="loss")
+
+    plot_contour(study, target=lambda t: t.values[0], target_name="loss")
+    plot_timeline(study)
+
+
+
+    print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
+
+    trial_with_highest_accuracy = max(study.best_trials, key=lambda t: t.values[1])
+    print(f"Trial with highest accuracy: ")
+    print(f"\tnumber: {trial_with_highest_accuracy.number}")
+    print(f"\tparams: {trial_with_highest_accuracy.params}")
+    print(f"\tvalues: {trial_with_highest_accuracy.values}")
