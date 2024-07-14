@@ -10,7 +10,7 @@
             "cwd": "${workspaceFolder}",
             "justMyCode": true,
             "args": [
-                "--config", "config_extract.json"
+                "--config", "configs/config_extract.json"
             ] 
         },
         {
@@ -22,7 +22,7 @@
             "cwd": "${workspaceFolder}",
             "justMyCode": true,
             "args": [
-                "--config", "config.json"
+                "--config", "configs/config.json"
             ] 
         },
         {
@@ -34,7 +34,7 @@
             "cwd": "${workspaceFolder}",
             "justMyCode": true,
             "args": [
-                "--config", "config_test.json",
+                "--config", "configs/config_test.json",
             ] 
         },
         {
@@ -46,7 +46,7 @@
             "cwd": "${workspaceFolder}",
             "justMyCode": true,
             "args": [
-                "--config", "config_new_model.json",
+                "--config", "configs/config_new_model.json",
             ] 
         },
     ]
