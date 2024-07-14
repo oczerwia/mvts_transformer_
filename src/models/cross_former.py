@@ -10,12 +10,14 @@ A few considerations:
 
 ############# Imports ###################
 
+from math import ceil, sqrt
+
+import einops
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
-
-
+from einops import rearrange, repeat
 
 ############# Embeddings ###############
 
@@ -30,20 +32,20 @@ class DSW_embedding(nn.Module):
     def forward(self, x):  
         # Reshape and permute dimensions
         segment_length = self.seg_len
-        x_segment = torch.reshape(x, (x.shape[0], -1, segment_length, x.shape[2]))
-        x_segment = x_segment.permute(0, 2, 1, 3)  # (b, seg_len, seg_num, d)
+        batch, ts_len, ts_dim = x.shape
 
-        # Apply linear layer
+
+        # Einops
+        x_segment = einops.rearrange(x, 'b (seg_num seg_len) d -> (b d seg_num) seg_len', seg_len = self.seg_len)
         x_embed = self.linear(x_segment)
-
-        # Reshape and permute dimensions (assuming d is the feature dimension)
-        x_embed = x_embed.view(x.shape[0], -1, x_segment.shape[2], self.d_model)  # view for flexibility
-        x_embed = x_embed.permute(0, 2, 1, 3)  # (b, seg_num, d, d_model)
+        x_embed = einops.rearrange(x_embed, '(b d seg_num) d_model -> b d seg_num d_model', b = batch, d = ts_dim)
+        
 
         return x_embed
     
 
 ############## Attention Layer ############
+
 
 
 class FullAttention(nn.Module):
@@ -58,13 +60,14 @@ class FullAttention(nn.Module):
     def forward(self, queries, keys, values):
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
-        scale = self.scale or 1./torch.sqrt(E)
+        scale = self.scale or 1./sqrt(E)
 
         scores = torch.einsum("blhe,bshe->bhls", queries, keys)
         A = self.dropout(torch.softmax(scale * scores, dim=-1))
         V = torch.einsum("bhls,bshd->blhd", A, values)
         
         return V.contiguous()
+
 
 class AttentionLayer(nn.Module):
     '''
@@ -102,7 +105,6 @@ class AttentionLayer(nn.Module):
 
         return self.out_projection(out)
 
-
 class TwoStageAttentionLayer(nn.Module):
     '''
     The Two Stage Attention (TSA) Layer
@@ -133,7 +135,7 @@ class TwoStageAttentionLayer(nn.Module):
     def forward(self, x):
         #Cross Time Stage: Directly apply MSA to each dimension
         batch = x.shape[0]
-        time_in = x.view(x.shape[0], x.shape[1], -1, x.shape[3])
+        time_in = rearrange(x, 'b ts_d seg_num d_model -> (b ts_d) seg_num d_model')
         time_enc = self.time_attention(
             time_in, time_in, time_in
         )
@@ -143,8 +145,8 @@ class TwoStageAttentionLayer(nn.Module):
         dim_in = self.norm2(dim_in)
 
         #Cross Dimension Stage: use a small set of learnable vectors to aggregate and distribute messages to build the D-to-D connection
-        dim_send = dim_in.view(dim_in.shape[0], -1, dim_in.shape[1], dim_in.shape[3])
-        batch_router = self.router.repeat(batch, 1, 1) 
+        dim_send = rearrange(dim_in, '(b ts_d) seg_num d_model -> (b seg_num) ts_d d_model', b = batch)
+        batch_router = repeat(self.router, 'seg_num factor d_model -> (repeat seg_num) factor d_model', repeat = batch)
         dim_buffer = self.dim_sender(batch_router, dim_send, dim_send)
         dim_receive = self.dim_receiver(dim_send, dim_buffer, dim_buffer)
         dim_enc = dim_send + self.dropout(dim_receive)
@@ -152,10 +154,9 @@ class TwoStageAttentionLayer(nn.Module):
         dim_enc = dim_enc + self.dropout(self.MLP2(dim_enc))
         dim_enc = self.norm4(dim_enc)
 
-        final_out = dim_enc.view(batch, -1, dim_enc.shape[2], dim_enc.shape[3])
+        final_out = rearrange(dim_enc, '(b seg_num) ts_d d_model -> b ts_d seg_num d_model', b = batch)
 
         return final_out
-    
 
 
 ############## Encoder Layer ############
@@ -239,7 +240,7 @@ class Encoder(nn.Module):
                                             in_seg_num, factor))
         for i in range(1, e_blocks):
             self.encode_blocks.append(scale_block(win_size, d_model, n_heads, d_ff, block_depth, dropout,\
-                                            math.ceil(in_seg_num/win_size**i), factor))
+                                            ceil(in_seg_num/win_size**i), factor))
 
     def forward(self, x):
         encode_x = []
@@ -253,36 +254,133 @@ class Encoder(nn.Module):
     
 
 
+############### Decoder #####################
+
+
+
+class DecoderLayer(nn.Module):
+    '''
+    The decoder layer of Crossformer, each layer will make a prediction at its scale
+    '''
+    def __init__(self, seg_len, d_model, n_heads, d_ff=None, dropout=0.1, out_seg_num = 10, factor = 10):
+        super(DecoderLayer, self).__init__()
+        self.self_attention = TwoStageAttentionLayer(out_seg_num, factor, d_model, n_heads, \
+                                d_ff, dropout)    
+        self.cross_attention = AttentionLayer(d_model, n_heads, dropout = dropout)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.MLP1 = nn.Sequential(nn.Linear(d_model, d_model),
+                                nn.GELU(),
+                                nn.Linear(d_model, d_model))
+        self.linear_pred = nn.Linear(d_model, seg_len)
+
+    def forward(self, x, cross):
+        '''
+        x: the output of last decoder layer
+        cross: the output of the corresponding encoder layer
+        '''
+
+        batch = x.shape[0]
+        x = self.self_attention(x)
+        x = rearrange(x, 'b ts_d out_seg_num d_model -> (b ts_d) out_seg_num d_model')
+        
+        cross = rearrange(cross, 'b ts_d in_seg_num d_model -> (b ts_d) in_seg_num d_model')
+        tmp = self.cross_attention(
+            x, cross, cross,
+        )
+        x = x + self.dropout(tmp)
+        y = x = self.norm1(x)
+        y = self.MLP1(y)
+        dec_output = self.norm2(x+y)
+        
+        dec_output = rearrange(dec_output, '(b ts_d) seg_dec_num d_model -> b ts_d seg_dec_num d_model', b = batch)
+        layer_predict = self.linear_pred(dec_output)
+        layer_predict = rearrange(layer_predict, 'b out_d seg_num seg_len -> b (out_d seg_num) seg_len')
+
+        return dec_output, layer_predict
+
+class Decoder(nn.Module):
+    '''
+    The decoder of Crossformer, making the final prediction by adding up predictions at each scale
+    '''
+    def __init__(self, seg_len, d_layers, d_model, n_heads, d_ff, dropout,\
+                router=False, out_seg_num = 10, factor=10):
+        super(Decoder, self).__init__()
+
+        self.router = router
+        self.decode_layers = nn.ModuleList()
+        for i in range(d_layers):
+            self.decode_layers.append(DecoderLayer(seg_len, d_model, n_heads, d_ff, dropout, \
+                                        out_seg_num, factor))
+
+    def forward(self, x, cross):
+        final_predict = None
+        i = 0
+
+        ts_d = x.shape[1]
+        for layer in self.decode_layers:
+            cross_enc = cross[i]
+            x, layer_predict = layer(x,  cross_enc)
+            if final_predict is None:
+                final_predict = layer_predict
+            else:
+                final_predict = final_predict + layer_predict
+            i += 1
+        
+        final_predict = rearrange(final_predict, 'b (out_d seg_num) seg_len -> b (seg_num seg_len) out_d', out_d = ts_d)
+
+        return final_predict
+
+
+
 ################ Complete architecture #############
 
 
 class Crossformer(nn.Module):
-    def __init__(self, data_dim, seg_len, win_size = 4,
+    def __init__(self, data_dim, in_len, out_len, seg_len, win_size = 4,
                 factor=10, d_model=512, d_ff = 1024, n_heads=8, e_layers=3, 
                 dropout=0.0):
         super(Crossformer, self).__init__()
         self.data_dim = data_dim
+        self.in_len = in_len
+        self.out_len = out_len
         self.seg_len = seg_len
         self.merge_win = win_size
 
+        # The padding operation to handle invisible sgemnet length
+        self.pad_in_len = ceil(1.0 * in_len / seg_len) * seg_len
+        self.pad_out_len = ceil(1.0 * out_len / seg_len) * seg_len
+        self.in_len_add = self.pad_in_len - self.in_len
 
         # Embedding
         self.enc_value_embedding = DSW_embedding(seg_len, d_model)
-        self.enc_pos_embedding = nn.Parameter(torch.randn(1, data_dim, seg_len, d_model))
+        self.enc_pos_embedding = nn.Parameter(torch.randn(1, data_dim, (self.pad_in_len // seg_len), d_model))
         self.pre_norm = nn.LayerNorm(d_model)
 
         # Encoder
         self.encoder = Encoder(e_layers, win_size, d_model, n_heads, d_ff, block_depth = 1, \
-                                    dropout = dropout,in_seg_num = seg_len, factor = factor)
+                                    dropout = dropout,in_seg_num = (self.pad_in_len // seg_len), factor = factor)
+        # Decoder
+        self.dec_pos_embedding = nn.Parameter(torch.randn(1, data_dim, (self.pad_out_len // seg_len), d_model))
+        self.decoder = Decoder(seg_len, e_layers + 1, d_model, n_heads, d_ff, dropout, \
+                                    out_seg_num = (self.pad_out_len // seg_len), factor = factor)
         
-
+        
     def forward(self, x_seq):
         batch_size = x_seq.shape[0]
+        if (self.in_len_add != 0):
+            x_seq = torch.cat((x_seq[:, :1, :].expand(-1, self.in_len_add, -1), x_seq), dim = 1)
+
         x_seq = self.enc_value_embedding(x_seq)
         x_seq += self.enc_pos_embedding
         x_seq = self.pre_norm(x_seq)
         
         enc_out = self.encoder(x_seq)
-        predict_y = None # TODO: Need to implement whatever comes in here
+        embedding = enc_out
 
-        predict_y[:, :self.out_len, :]
+        dec_in = repeat(self.dec_pos_embedding, 'b ts_d l d -> (repeat b) ts_d l d', repeat = batch_size)
+        predict_y = self.decoder(dec_in, enc_out)
+
+
+        return predict_y, embedding
