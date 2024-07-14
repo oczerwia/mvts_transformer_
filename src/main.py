@@ -31,16 +31,40 @@ from optimizers import get_optimizer
 from options import Options
 from running import NEG_METRICS, harden_steps, pipeline_factory, setup, validate
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 
 
-def main(config):
 
-    total_epoch_time = 0
-    total_eval_time = 0
+def initialize_hyperparameters(config):
 
-    total_start_time = time.time()
+    return config
+
+def initialize_config():
+    args = Options().parse()  # `argsparse` object
+    config = setup(args)  # configuration dictionary
+    config = initialize_hyperparameters(config)
+    return config
+
+def initialize_logging(config):
+    # Create output directory if it does not exist
+    if not os.path.exists(config["output_dir"]):
+        os.makedirs(config["output_dir"])
+    if not os.path.exists(os.path.join(config["output_dir"], "predictions")):
+        os.makedirs(os.path.join(config["output_dir"], "predictions"))
+    if not os.path.exists(os.path.join(config["output_dir"], "models")):
+        os.makedirs(os.path.join(config["output_dir"], "models"))
+    if not os.path.exists(os.path.join(config["output_dir"], "embeddings")):
+        os.makedirs(os.path.join(config["output_dir"], "embeddings"))
+
+    # Initialize logging
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s : %(message)s")
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # initialize seed
+    torch.manual_seed(config["seed"])
 
     # Add file logging besides stdout
     file_handler = logging.FileHandler(os.path.join(config["output_dir"], "output.log"))
@@ -48,8 +72,116 @@ def main(config):
 
     logger.info("Running:\n{}\n".format(" ".join(sys.argv)))  # command used to run
 
-    if config["seed"] is not None:
-        torch.manual_seed(config["seed"])
+    return logger
+
+def initialize_optimizer(config, model):
+    weight_decay = config["l2_reg"] if config["l2_reg"] else 0
+    optim_class = get_optimizer(config["optimizer"])
+    optimizer = optim_class(
+        model.parameters(), lr=config["lr"], weight_decay=weight_decay
+    )
+    return model, optimizer
+
+def evaluate_test_set(config, test_data, model, device, loss_module, logger):
+    dataset_class, collate_fn, runner_class = pipeline_factory(config)
+    test_dataset = dataset_class(test_data, config=config)
+
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        batch_size=config["batch_size"],
+        num_workers=config["num_workers"],
+        pin_memory=True,
+        collate_fn=collate_unsuperv,
+    )
+
+    if config["extract_embeddings_only"]:
+        embeddings_extractor = runner_class(
+            model,
+            test_loader,
+            device,
+            loss_module,
+            print_interval=config["print_interval"],
+            console=config["console"],
+        )
+        with torch.no_grad():
+            embeddings = embeddings_extractor.extract_embeddings(keep_all=True)
+            embeddings_filepath = os.path.join(
+                os.path.join(config["output_dir"] + "/embeddings.pt")
+            )
+            torch.save(embeddings, embeddings_filepath)
+        return
+    else:
+        test_evaluator = runner_class(
+            model,
+            test_loader,
+            device,
+            loss_module,
+            print_interval=config["print_interval"],
+            console=config["console"],
+        )
+        aggr_metrics_test, per_batch_test = test_evaluator.evaluate(keep_all=True)
+        print_str = "Test Summary: "
+        for k, v in aggr_metrics_test.items():
+            if v is None:
+                v=0
+            print_str += f"{k}: {np.round(v, 8)} | "
+        logger.info(print_str)
+        return
+    
+def initialize_dataloader(config, model, my_data, val_data, device, optimizer, loss_module):
+    dataset_class, collate_fn, runner_class = pipeline_factory(config)
+    val_dataset = dataset_class(val_data, config=config)
+    val_loader = DataLoader(
+        dataset=val_dataset,
+        batch_size=config["batch_size"],
+        shuffle=False,
+        num_workers=config["num_workers"],
+        pin_memory=True,
+        collate_fn=collate_unsuperv,
+    )
+
+    train_dataset = dataset_class(my_data, config=config)
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=config["batch_size"],
+        shuffle=True, # We can shuffle within
+        num_workers=config["num_workers"],
+        pin_memory=True,
+        collate_fn=collate_unsuperv,
+        prefetch_factor=1 if config["num_workers"] > 0 else None,
+    )
+
+    train_evaluator = runner_class(
+        model,
+        train_loader,
+        device,
+        loss_module,
+        optimizer,
+        l2_reg=config["l2_reg"] if config["l2_reg"] else 0,
+        print_interval=config["print_interval"],
+        console=config["console"],
+    )
+    val_evaluator = runner_class(
+        model,
+        val_loader,
+        device,
+        loss_module,
+        print_interval=config["print_interval"],
+        console=config["console"],
+    )
+
+    return train_evaluator, train_loader, train_dataset, val_evaluator,val_loader, val_dataset
+
+def main():
+
+
+    config = initialize_config()
+    total_epoch_time = 0
+
+    total_start_time = time.time()
+
+    logger = initialize_logging(config)
+        
 
     device = torch.device(
         "cuda" if (torch.cuda.is_available() and config["gpu"] != "-1") else "cpu"
@@ -68,12 +200,6 @@ def main(config):
         limit_size=config["limit_size"],
         config=config,
     )
-    if config["task"] == "classification":
-        validation_method = "StratifiedShuffleSplit"
-        labels = my_data.labels_df.values.flatten()
-    else:
-        validation_method = "ShuffleSplit"
-        labels = None
 
     if config[
         "test_pattern"
@@ -112,17 +238,7 @@ def main(config):
 
     # Initialize optimizer
 
-    if config["global_reg"]:
-        weight_decay = config["l2_reg"]
-        output_reg = None
-    else:
-        weight_decay = 0
-        output_reg = config["l2_reg"]
-
-    optim_class = get_optimizer(config["optimizer"])
-    optimizer = optim_class(
-        model.parameters(), lr=config["lr"], weight_decay=weight_decay
-    )
+    model, optimizer = initialize_optimizer(config, model)
 
     start_epoch = 0
     lr_step = 0  # current step index of `lr_step`
@@ -143,93 +259,16 @@ def main(config):
 
     loss_module = get_loss_module(config)
 
+
+
     if config["test_only"] == "testset":  # Only evaluate and skip training
-        dataset_class, collate_fn, runner_class = pipeline_factory(config)
-        test_dataset = dataset_class(test_data, config=config)
-
-        test_loader = DataLoader(
-            dataset=test_dataset,
-            batch_size=config["batch_size"],
-            num_workers=config["num_workers"],
-            pin_memory=True,
-            collate_fn=collate_unsuperv,
+        logger.info("Evaluating on test set ...")
+        evaluate_test_set(config, test_data, model, device, loss_module, logger)
+        return
+    
+    train_evaluator, train_loader, train_dataset, val_evaluator,val_loader, val_dataset = initialize_dataloader(
+        config, model, my_data, val_data, device, optimizer, logger, loss_module
         )
-
-        if config["extract_embeddings_only"]:
-            embeddings_extractor = runner_class(
-                model,
-                test_loader,
-                device,
-                loss_module,
-                print_interval=config["print_interval"],
-                console=config["console"],
-            )
-            with torch.no_grad():
-                embeddings = embeddings_extractor.extract_embeddings(keep_all=True)
-                embeddings_filepath = os.path.join(
-                    os.path.join(config["output_dir"] + "/embeddings.pt")
-                )
-                torch.save(embeddings, embeddings_filepath)
-            return
-        else:
-            test_evaluator = runner_class(
-                model,
-                test_loader,
-                device,
-                loss_module,
-                print_interval=config["print_interval"],
-                console=config["console"],
-            )
-            aggr_metrics_test, per_batch_test = test_evaluator.evaluate(keep_all=True)
-            print_str = "Test Summary: "
-            for k, v in aggr_metrics_test.items():
-                if v is None:
-                    v=0
-                print_str += f"{k}: {np.round(v, 8)} | "
-            logger.info(print_str)
-            return
-
-    # Initialize data generators
-    dataset_class, collate_fn, runner_class = pipeline_factory(config)
-    val_dataset = dataset_class(val_data, config=config)
-    val_loader = DataLoader(
-        dataset=val_dataset,
-        batch_size=config["batch_size"],
-        shuffle=False,
-        num_workers=config["num_workers"],
-        pin_memory=True,
-        collate_fn=collate_unsuperv,
-    )
-
-    train_dataset = dataset_class(my_data, config=config)
-    train_loader = DataLoader(
-        dataset=train_dataset,
-        batch_size=config["batch_size"],
-        shuffle=True, # We can shuffle within
-        num_workers=config["num_workers"],
-        pin_memory=True,
-        collate_fn=collate_unsuperv,
-        prefetch_factor=1 if config["num_workers"] > 0 else None,
-    )
-
-    trainer = runner_class(
-        model,
-        train_loader,
-        device,
-        loss_module,
-        optimizer,
-        l2_reg=output_reg,
-        print_interval=config["print_interval"],
-        console=config["console"],
-    )
-    val_evaluator = runner_class(
-        model,
-        val_loader,
-        device,
-        loss_module,
-        print_interval=config["print_interval"],
-        console=config["console"],
-    )
 
 
     best_value = (
@@ -252,7 +291,7 @@ def main(config):
         mark = epoch if config["save_all"] else "last"
         # torch.multiprocessing.get_context('spawn').join()
         epoch_start_time = time.time()
-        aggr_metrics_train = trainer.train_epoch(
+        aggr_metrics_train = train_evaluator.train_epoch(
             epoch
         )  # dictionary of aggregate epoch metrics
         epoch_runtime = time.time() - epoch_start_time
@@ -334,9 +373,6 @@ def main(config):
     metrics_filepath = os.path.join(
         config["output_dir"], "metrics_" + config["experiment_name"] + ".xls"
     )
-    book = utils.export_performance_metrics(
-        metrics_filepath, metrics, header, sheet_name="metrics"
-    )
     # TODO: Export this as csv, so that I can read it during tuning
     best_predictions = list(
         np.load(
@@ -344,7 +380,6 @@ def main(config):
             allow_pickle=True,
         )["metrics"]
     )
-    # TODO: Understand how the metrics are structured
     metrics_df = pd.DataFrame(metrics, columns=header)
     metrics_filepath = os.path.join(
         config["output_dir"], "metrics_" + config["experiment_name"] + ".csv"
@@ -366,19 +401,9 @@ def main(config):
             config["key_metric"], best_value, best_metrics
         )
     )
-    logger.info("All Done!")
-
-    total_runtime = time.time() - total_start_time
-    logger.info(
-        "Total runtime: {} hours, {} minutes, {} seconds\n".format(
-            *utils.readable_time(total_runtime)
-        )
-    )
 
     return best_value
 
 if __name__ == "__main__":
 
-    args = Options().parse()  # `argsparse` object
-    config = setup(args)  # configuration dictionary
-    main(config)
+    main()
