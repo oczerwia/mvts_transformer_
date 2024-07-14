@@ -10,6 +10,9 @@ build
 
 # Dataset
 *.npz
+*.csv
+*.xlsx
+*.xls
 
 # Models
 *.pth
@@ -19,7 +22,6 @@ build
 *.pyc
 
 # Jupyter
-*.ipynb
 .ipynb_checkpoints
 
 # Doc
