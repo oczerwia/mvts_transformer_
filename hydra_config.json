@@ -1,5 +1,5 @@
 {
-    "output_dir": "mvts_transformer_/outputs",
+    "output_dir": "mvts_transformer_/outputs/",
     "comment": "test fnirs training on high density dataset",
     "name": "fnirs_high_density_imputation",
     "records_file": "fnirs_high_density_test.xls",
