@@ -8,9 +8,9 @@ from torch.nn import functional as F
 from torch.nn.modules import (BatchNorm1d, Dropout, Linear, MultiheadAttention,
                               TransformerEncoderLayer)
 
-from src.models.cnn import TimeSeriesImputerCNN
-from src.models.cross_former import Crossformer
-from src.models.lstm import SelfSupervisedLSTMImputer
+from models.cnn import TimeSeriesImputerCNN
+# from models.cross_former import Crossformer
+from models.lstm import SelfSupervisedLSTMImputer
 
 
 def model_factory(config, data):
@@ -64,6 +64,7 @@ def model_factory(config, data):
                 forget_gate_bias=config["forget_gate_bias"],
             )
         elif config["model"] == "crossformer":
+            return
             return Crossformer(data_dim=feat_dim,
                                seg_len=config["seg_len"],
                                win_size=config["win_size"],

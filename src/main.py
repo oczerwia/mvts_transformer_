@@ -8,8 +8,6 @@ Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery and Data Mi
 
 import logging
 
-from src.datasets.dataset import collate_unsuperv
-from src.utils import utils
 
 logging.basicConfig(format='%(asctime)s | %(levelname)s : %(message)s', level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
@@ -21,15 +19,7 @@ import time
 import numpy as np
 import optuna
 from optuna.trial import TrialState
-from optuna.visualization import plot_pareto_front
-from optuna.visualization import plot_edf
-from optuna.visualization import plot_intermediate_values
-from optuna.visualization import plot_optimization_history
-from optuna.visualization import plot_parallel_coordinate
-from optuna.visualization import plot_param_importances
-from optuna.visualization import plot_contour
-from optuna.visualization import plot_slice
-from optuna.visualization import plot_timeline
+
 
 # 3rd party packages
 import pandas as pd
@@ -39,6 +29,8 @@ from datasets.dataset import collate_unsuperv
 from models.loss import get_loss_module
 from models.ts_transformer import model_factory
 from optimizers import get_optimizer
+from utils import utils
+
 # Project modules
 from options import Options
 from running import NEG_METRICS, harden_steps, load_setup, pipeline_factory, setup, validate

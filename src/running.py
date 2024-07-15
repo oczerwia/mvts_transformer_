@@ -18,7 +18,7 @@ from models.loss import l2_reg_loss
 from torch.utils.data import DataLoader
 from utils import analysis, utils
 
-from src.utils.statsloading import append_to_csv_pandas
+from utils.statsloading import append_to_csv_pandas
 
 logger = logging.getLogger("__main__")
 
