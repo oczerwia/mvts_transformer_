@@ -428,7 +428,7 @@ def main(trial):
     )
     metrics_df.to_csv(metrics_filepath)
 
-    train_metrics_df = pd.DataFrame(train_metrics, columns=header)
+    train_metrics_df = pd.DataFrame(train_metrics, columns=["epoch", "loss"])
     train_metrics_filepath = os.path.join(
         config["output_dir"], "train_metrics_" + config["experiment_name"] + ".csv"
     )
