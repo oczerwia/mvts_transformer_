@@ -33,6 +33,11 @@ from utils import utils
 
 # Project modules
 from options import Options
+from optuna.trial import TrialState
+from optuna.visualization import (plot_contour, plot_edf, plot_intermediate_values,
+                                  plot_optimization_history, plot_parallel_coordinate,
+                                  plot_param_importances, plot_pareto_front, plot_slice,
+                                  plot_timeline)
 from running import NEG_METRICS, harden_steps, load_setup, pipeline_factory, setup, validate
 from torch.utils.data import DataLoader
 
@@ -46,7 +51,7 @@ def initialize_config(trial):
     # Hyperparameters
     config["lr"] = trial.suggest_loguniform("lr", 1e-5, 1e-1)
     config["batch_size"] = trial.suggest_categorical("batch_size", [8, 16, 32, 64, 128, 256])
-    config["epochs"] = trial.suggest_int("epochs", 100, 500)
+    config["epochs"] = 1 # trial.suggest_int("epochs", 100, 500)
     config["l2_reg"] = trial.suggest_loguniform("l2_reg", 1e-5, 1e-1)
     config["dropout"] = trial.suggest_uniform("dropout", 0.0, 0.5)
     config["n_layers"] = trial.suggest_categorical("n_layers", [4,6,8,12])
@@ -298,6 +303,8 @@ def main(trial):
     best_value = (
         1e16 if config["key_metric"] in NEG_METRICS else -1e16
     )  # initialize with +inf or -inf depending on key metric
+    train_metrics = []  # list of lists: for each epoch, stores metrics like loss, ...
+
     metrics = (
         []
     )  # (for validation) list of lists: for each epoch, stores metrics like loss, ...
@@ -323,6 +330,8 @@ def main(trial):
         aggr_metrics_train = train_evaluator.train_epoch(
             epoch
         )  # dictionary of aggregate epoch metrics
+        train_metrics_names, train_metrics_values = zip(*aggr_metrics_train.items())
+        train_metrics.append(list(train_metrics_values))
         epoch_runtime = time.time() - epoch_start_time
         print()
         print_str = "Epoch {} Training Summary: ".format(epoch)
@@ -418,6 +427,12 @@ def main(trial):
         config["output_dir"], "metrics_" + config["experiment_name"] + ".csv"
     )
     metrics_df.to_csv(metrics_filepath)
+
+    train_metrics_df = pd.DataFrame(train_metrics, columns=header)
+    train_metrics_filepath = os.path.join(
+        config["output_dir"], "train_metrics_" + config["experiment_name"] + ".csv"
+    )
+    train_metrics_df.to_csv(train_metrics_filepath)
 
     logger.info(
         "Best {} was {}. Other metrics: {}".format(

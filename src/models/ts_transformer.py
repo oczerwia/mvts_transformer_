@@ -3,14 +3,13 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
+from models.cnn import TimeSeriesImputerCNN
+# from models.cross_former import Crossformer
+from models.lstm import SelfSupervisedLSTMImputer
 from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.nn.modules import (BatchNorm1d, Dropout, Linear, MultiheadAttention,
                               TransformerEncoderLayer)
-
-from models.cnn import TimeSeriesImputerCNN
-# from models.cross_former import Crossformer
-from models.lstm import SelfSupervisedLSTMImputer
 
 
 def model_factory(config, data):
