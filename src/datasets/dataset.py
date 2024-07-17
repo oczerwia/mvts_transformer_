@@ -85,7 +85,6 @@ class StreamDataset(Dataset):
 
     def __getitem__(self, index):
         file_path = self.data_paths[index]
-        print(f"Loading data from: {file_path}")
         X = np.array(pd.read_csv(file_path, index_col=0, header=0, float_precision="high", dtype=float))
         mask = self.noise_mask(X)
         return torch.from_numpy(X), torch.from_numpy(mask)
