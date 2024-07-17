@@ -8,7 +8,6 @@ Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery and Data Mi
 
 import logging
 
-
 logging.basicConfig(format='%(asctime)s | %(levelname)s : %(message)s', level=logging.INFO, force=True)
 logger = logging.getLogger(__name__)
 
@@ -18,9 +17,6 @@ import time
 
 import numpy as np
 import optuna
-from optuna.trial import TrialState
-
-
 # 3rd party packages
 import pandas as pd
 import torch
@@ -29,8 +25,6 @@ from datasets.dataset import collate_unsuperv
 from models.loss import get_loss_module
 from models.ts_transformer import model_factory
 from optimizers import get_optimizer
-from utils import utils
-
 # Project modules
 from options import Options
 from optuna.trial import TrialState
@@ -40,6 +34,7 @@ from optuna.visualization import (plot_contour, plot_edf, plot_intermediate_valu
                                   plot_timeline)
 from running import NEG_METRICS, harden_steps, load_setup, pipeline_factory, setup, validate
 from torch.utils.data import DataLoader
+from utils import utils
 
 
 def initialize_config(trial):
@@ -121,38 +116,27 @@ def evaluate_test_set(config, test_data, model, device, loss_module, logger):
         collate_fn=collate_unsuperv,
     )
 
-    if config["extract_embeddings_only"]:
-        embeddings_extractor = runner_class(
-            model,
-            test_loader,
-            device,
-            loss_module,
-            print_interval=config["print_interval"],
-            console=config["console"],
-        )
-        with torch.no_grad():
-            embeddings = embeddings_extractor.extract_embeddings(keep_all=True)
-            embeddings_filepath = os.path.join(
-                os.path.join(config["output_dir"] + "/embeddings.pt")
-            )
-            torch.save(embeddings, embeddings_filepath)
-        return
-    else:
-        test_evaluator = runner_class(
-            model,
-            test_loader,
-            device,
-            loss_module,
-            print_interval=config["print_interval"],
-            console=config["console"],
-        )
-        aggr_metrics_test, per_batch_test = test_evaluator.evaluate(keep_all=True)
-        print_str = "Test Summary: "
-        for k, v in aggr_metrics_test.items():
-            if v is None:
-                v=0
-            print_str += f"{k}: {np.round(v, 8)} | "
-        # logger.info(print_str)
+    test_evaluator = runner_class(
+        model,
+        test_loader,
+        device,
+        loss_module,
+        print_interval=config["print_interval"],
+        console=config["console"],
+    )
+    aggr_metrics_test, per_batch_test = test_evaluator.evaluate(keep_all=True)
+    print_str = "Test Summary: "
+    for k, v in aggr_metrics_test.items():
+        if v is None:
+            v=0
+        print_str += f"{k}: {np.round(v, 8)} | "
+    # logger.info(print_str)
+
+        # Save per batch test data to disk
+
+        # Save per batch test data as torch tensors to disk
+        per_batch_test_torch_filepath = os.path.join(config["output_dir"] + "/per_batch_test.pt")
+        torch.save(per_batch_test, per_batch_test_torch_filepath)
         return
     
 def initialize_dataloader(config, model, my_data, val_data, device, optimizer, loss_module):
@@ -198,6 +182,54 @@ def initialize_dataloader(config, model, my_data, val_data, device, optimizer, l
     )
 
     return train_evaluator, train_loader, train_dataset, val_evaluator,val_loader, val_dataset
+
+
+def test_only():
+
+    args = Options().parse()  # `argsparse` object
+    config = load_setup(args)
+    config = setup(config)
+    
+    logger = initialize_logging(config)
+
+
+    device = torch.device(
+        "cuda" if (torch.cuda.is_available() and config["gpu"] != "-1") else "cpu"
+    )
+    logger.info("Using device: {}".format(device))
+    if device == "cuda":
+        logger.info("Device index: {}".format(torch.cuda.current_device()))
+
+    data_class = data_factory[config["data_class"]]
+
+    model = model_factory(config)
+    model, optimizer = initialize_optimizer(config, model)
+    
+
+    if config["load_model"]:
+        model, optimizer, start_epoch = utils.load_model(
+            model,
+            config["load_model"],
+            optimizer,
+            config["resume"],
+            config["change_output"],
+            config["lr"],
+            config["lr_step"],
+            config["lr_factor"],
+        )
+    model.to(device)
+
+    loss_module = get_loss_module(config)
+
+    data_class = data_factory[config["data_class"]]
+    test_data = data_class(
+            config["data_dir"], pattern=config["test_pattern"], n_proc=-1, config=config
+        )
+
+    if config["test_only"] == "testset":  # Only evaluate and skip training
+        logger.info("Evaluating on test set ...")
+        evaluate_test_set(config, test_data, model, device, loss_module, logger)
+        return
 
 def main(trial):
 
@@ -444,20 +476,26 @@ def main(trial):
 
 if __name__ == "__main__":
 
-    study = optuna.create_study(directions=["minimize","maximize"],
-                                sampler=optuna.samplers.TPESampler(),
-                                storage="sqlite:///db.sqlite3")
-    
-    study.optimize(main, n_trials=5, n_jobs=1, gc_after_trial=True)
-    study.trials_dataframe().to_csv("results.csv")
+    args = Options().parse()  # `argsparse` object
+    config = load_setup(args)
+    if config["test_only"] != "testset":
+        study = optuna.create_study(directions=["minimize","maximize"],
+                                    sampler=optuna.samplers.TPESampler(),
+                                    storage="sqlite:///db.sqlite3")
+        
+        study.optimize(main, n_trials=5, n_jobs=1, gc_after_trial=True)
+        study.trials_dataframe().to_csv("results.csv")
 
-    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
-    complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+        pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+        complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
 
-    print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
+        print(f"Number of trials on the Pareto front: {len(study.best_trials)}")
 
-    trial_with_highest_accuracy = max(study.best_trials, key=lambda t: t.values[1])
-    print(f"Trial with highest accuracy: ")
-    print(f"\tnumber: {trial_with_highest_accuracy.number}")
-    print(f"\tparams: {trial_with_highest_accuracy.params}")
-    print(f"\tvalues: {trial_with_highest_accuracy.values}")
+        trial_with_highest_accuracy = max(study.best_trials, key=lambda t: t.values[1])
+        print(f"Trial with highest accuracy: ")
+        print(f"\tnumber: {trial_with_highest_accuracy.number}")
+        print(f"\tparams: {trial_with_highest_accuracy.params}")
+        print(f"\tvalues: {trial_with_highest_accuracy.values}")
+
+    else:
+        test_only()
