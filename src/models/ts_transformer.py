@@ -12,7 +12,7 @@ from torch.nn.modules import (BatchNorm1d, Dropout, Linear, MultiheadAttention,
                               TransformerEncoderLayer)
 
 
-def model_factory(config, data):
+def model_factory(config, data=None):
     task = config["task"]
     feat_dim = 428  # data.feature_df.shape[1]  # dimensionality of data features
     # data windowing is used when samples don't have a predefined length or the length is too long
