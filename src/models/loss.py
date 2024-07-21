@@ -6,11 +6,9 @@ from torch.nn import functional as F
 def get_loss_module(config):
 
     task = config['task']
-    reduction = config.get('loss_reduction')
-
 
     if (task == "imputation") or (task == "imputation_generator") or (task == "transduction"):
-        return MaskedMSELoss(reduction=reduction)  # outputs loss for each batch element
+        return MaskedMSELoss(reduction='none')  # outputs loss for each batch element
 
     if task == "classification":
         return NoFussCrossEntropyLoss(reduction='none')  # outputs loss for each batch sample

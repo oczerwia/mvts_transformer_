@@ -127,10 +127,8 @@ def setup(config):
     formatted_timestamp = initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S") #
      
     global experiment_name
-    if config["test_only"] == "testset":
-        experiment_name = f'TEST_experiment_{config["model"]}_{config["optimizer"]}_{config["epochs"]}_{config["dropout"]}_{config["batch_size"]}_{config["activation"]}_{config["harden"]}_{initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")}'
-    else:
-        experiment_name = f'experiment_{config["model"]}_{config["optimizer"]}_{config["epochs"]}_{config["dropout"]}_{config["batch_size"]}_{config["activation"]}_{config["harden"]}_{initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")}'
+
+    experiment_name = f'experiment_{config["model"]}_{config["optimizer"]}_{config["epochs"]}_{config["dropout"]}_{config["batch_size"]}_{config["activation"]}_{config["harden"]}_{initial_timestamp.strftime("%Y-%m-%d_%H-%M-%S")}'
 
     # Save general parameters, model parameters and results seperately.
     general_parameter_list = ["model", "optimizer", 
@@ -359,7 +357,7 @@ def validate(
 
 def harden_steps(epoch):
 
-    if epoch in [1, 2, 3]:# [100, 140, 160, 220, 280, 340]:
+    if epoch in [10, 15, 20, 25, 30]:
         return True
     else:
         return False
@@ -427,7 +425,6 @@ class UnsupervisedRunner(BaseRunner):
 
         for i, batch in enumerate(self.dataloader):
             logger.info(f"train_epoch batch: {i}")
-            logger.info(f"DATA SHAPE: {batch[0].shape}")
 
             X, targets, target_masks, padding_masks = batch
             targets = targets.to(self.device)
@@ -482,7 +479,7 @@ class UnsupervisedRunner(BaseRunner):
         self.model = self.model.eval()
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"DEVICE IS: {self.device}")
+
         epoch_loss = 0  # total loss of epoch
         total_active_elements = 0  # total unmasked elements in epoch
         epoch_snr = []
@@ -494,6 +491,7 @@ class UnsupervisedRunner(BaseRunner):
                 "predictions": [],
                 "metrics": [],
                 "IDs": [],
+                "embeddings": [],
             }
         for i, batch in enumerate(self.dataloader):
 
@@ -531,6 +529,7 @@ class UnsupervisedRunner(BaseRunner):
                 per_batch["targets"].append(targets.detach().cpu().numpy())
                 per_batch["predictions"].append(predictions.detach().cpu().numpy())
                 per_batch["metrics"].append([loss.detach().cpu().numpy()])
+                per_batch["embeddings"].append(embedding.detach().cpu().numpy())
 
             metrics = {"loss": mean_loss, "snr": snr, "correlation": correlation}
             if i % self.print_interval == 0:
