@@ -26,6 +26,18 @@
             ] 
         },
         {
+            "name": "TST_crossformer",
+            "type": "debugpy",
+            "program": "src/main.py",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true,
+            "args": [
+                "--config", "configs/crossformer_train.json"
+            ] 
+        },
+        {
             "name": "TST_test",
             "type": "debugpy",
             "program": "src/main.py",

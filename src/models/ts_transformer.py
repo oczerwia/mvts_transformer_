@@ -4,7 +4,7 @@ from typing import Any, Optional
 import numpy as np
 import torch
 from models.cnn import TimeSeriesImputerCNN
-# from models.cross_former import Crossformer
+from models.cross_former import Crossformer
 from models.lstm import SelfSupervisedLSTMImputer
 from torch import Tensor, nn
 from torch.nn import functional as F
@@ -63,7 +63,6 @@ def model_factory(config, data=None):
                 forget_gate_bias=config["forget_gate_bias"],
             )
         elif config["model"] == "crossformer":
-            return
             return Crossformer(data_dim=feat_dim,
                                seg_len=config["seg_len"],
                                win_size=config["win_size"],
@@ -342,7 +341,7 @@ class TSTransformerEncoder(nn.Module):
         )  # (seq_length, batch_size, d_model)
         output = self.act(
             output
-        )  # the output transformer encoder/decoder embeddings don't include non-linearity
+        ) # the output transformer encoder/decoder embeddings don't include non-linearity
         
         output = output.permute(1, 0, 2)  # (batch_size, seq_length, d_model)
         embedding = output
