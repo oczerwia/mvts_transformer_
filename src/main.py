@@ -388,21 +388,14 @@ def main(trial):
             metrics_names, metrics_values = zip(*aggr_metrics_val.items())
             metrics.append(list(metrics_values))
 
-        utils.save_model(
-            os.path.join(config["save_dir"], "model_{}.pth".format(mark)),
-            epoch,
-            model,
-            optimizer,
-        )
-
         # Learning rate scheduling
         if epoch == config["lr_step"][lr_step]:
-            utils.save_model(
-                os.path.join(config["save_dir"], "model_{}.pth".format(epoch)),
-                epoch,
-                model,
-                optimizer,
-            )
+            # utils.save_model(
+            #     os.path.join(config["save_dir"], "model_{}.pth".format(epoch)),
+            #     epoch,
+            #     model,
+            #     optimizer,
+            # )
             lr = lr * config["lr_factor"][lr_step]
             if (
                 lr_step < len(config["lr_step"]) - 1
